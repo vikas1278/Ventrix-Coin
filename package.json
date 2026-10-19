@@ -1,0 +1,25 @@
+{
+  "name": "gravity-shop-bot",
+  "version": "1.0.0",
+  "description": "Discord.js shop, UPI QR checkout, Gmail transaction-email verifier, and MongoDB coin wallet",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "deploy": "node src/deploy-commands.js",
+    "deploy-commands": "node src/deploy-commands.js",
+    "check": "node --check src/index.js && node --check src/deploy-commands.js",
+    "test": "npm run check"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "@napi-rs/canvas": "^1.0.11",
+    "discord.js": "^14.25.1",
+    "dotenv": "^16.4.7",
+    "googleapis": "^144.0.0",
+    "mongoose": "^8.9.5",
+    "qrcode": "^1.5.4"
+  }
+}
