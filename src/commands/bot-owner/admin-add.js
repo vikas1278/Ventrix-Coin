@@ -1,9 +1,11 @@
-import { SlashCommandBuilder } from 'discord.js';
+import { SlashCommandBuilder, PermissionFlagsBits } from 'discord.js';
 import { ownerOnly, addAdminUser, escapeText, ok, err, replyEmbed } from '../../utils/common.js';
 
 export const data = new SlashCommandBuilder()
   .setName('admin-add')
   .setDescription('Add a new administrator to the bot (Bot Owner Only)')
+  .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+  .setDMPermission(false)
   .addUserOption(o => o.setName('user').setDescription('Target member').setRequired(true))
   .addStringOption(o => o.setName('note').setDescription('Optional note or role info').setRequired(false));
 

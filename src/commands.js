@@ -4,16 +4,26 @@ import * as shopCmd from './commands/public/shop.js';
 import * as buyItemCmd from './commands/public/buyitem.js';
 import * as buyCoinCmd from './commands/public/buycoin.js';
 import * as walletCmd from './commands/public/wallet.js';
+import * as wallet2Cmd from './commands/public/wallet-2.js';
 import * as profileCmd from './commands/public/profile.js';
 import * as transactionsCmd from './commands/public/transactions.js';
 import * as itemCmd from './commands/public/item.js';
+import * as dashboardCmd from './commands/public/dashboard.js';
+import * as transferCmd from './commands/public/transfer.js';
+import * as inventoryCmd from './commands/public/inventory.js';
+import * as mineCmd from './commands/public/mine.js';
+import * as coinflipCmd from './commands/public/coinflip.js';
+import * as guessCmd from './commands/public/guess.js';
+import * as rpsCmd from './commands/public/rps.js';
+import * as leaderboardCmd from './commands/public/leaderboard.js';
+import * as historyCmd from './commands/public/history.js';
 
 // ─── Admin Commands ───────────────────────────────────────────────────────────
 import * as createItemCmd from './commands/admin/create-item.js';
 import * as editItemCmd from './commands/admin/edit-item.js';
 import * as deleteItemCmd from './commands/admin/delete-item.js';
 import * as giveCoinsCmd from './commands/admin/give-coins.js';
-import * as takeCoinsCmd from './commands/admin/take-coins.js';
+import * as removeCoinsCmd from './commands/admin/remove-coins.js';
 import * as setRateCmd from './commands/admin/set-rate.js';
 import * as approvePaymentCmd from './commands/admin/approve-payment.js';
 import * as rejectOrderCmd from './commands/admin/reject-order.js';
@@ -22,11 +32,24 @@ import * as orderCmd from './commands/admin/order.js';
 import * as orderHistoryCmd from './commands/admin/order-history.js';
 import * as removeItemCmd from './commands/admin/remove-item.js';
 import * as dropboxCmd from './commands/admin/dropbox.js';
+import * as dropboxDeleteCmd from './commands/admin/dropbox-delete.js';
+import * as gameSettingsCmd from './commands/admin/game-settings.js';
+import * as gameToggleCmd from './commands/admin/game-toggle.js';
+import * as serverConfigCmd from './commands/admin/server-config.js';
 
+// ─── Bot Owner Commands ───────────────────────────────────────────────────────
 import * as adminAddCmd from './commands/bot-owner/admin-add.js';
 import * as adminRemoveCmd from './commands/bot-owner/admin-remove.js';
 import * as adminListCmd from './commands/bot-owner/admin-list.js';
 import * as clearServerCmd from './commands/bot-owner/clear-server.js';
+import * as serverCmd from './commands/bot-owner/server.js';
+import * as botBlacklistCmd from './commands/bot-owner/bot-blacklist.js';
+import * as botUnblacklistCmd from './commands/bot-owner/bot-unblacklist.js';
+import * as botStatsCmd from './commands/bot-owner/bot-stats.js';
+import * as botGuildsCmd from './commands/bot-owner/bot-guilds.js';
+
+// ─── Interactive Game Handlers ────────────────────────────────────────────────
+import { handleMineButton } from './games/mines/mine-handler.js';
 
 import { err } from './utils/common.js';
 
@@ -38,17 +61,26 @@ export const commandMap = new Map([
   ['buyitem', buyItemCmd],
   ['buycoin', buyCoinCmd],
   ['wallet', walletCmd],
-  ['wallet-2', profileCmd],
+  ['wallet-2', wallet2Cmd],
   ['profile', profileCmd],
   ['transactions', transactionsCmd],
   ['item', itemCmd],
+  ['inventory', inventoryCmd],
+  ['dashboard', dashboardCmd],
+  ['transfer', transferCmd],
+  ['mine', mineCmd],
+  ['coinflip', coinflipCmd],
+  ['guess', guessCmd],
+  ['rps', rpsCmd],
+  ['leaderboard', leaderboardCmd],
+  ['history', historyCmd],
 
   // Admin
   ['create-item', createItemCmd],
   ['edit-item', editItemCmd],
   ['delete-item', deleteItemCmd],
   ['give-coins', giveCoinsCmd],
-  ['take-coins', takeCoinsCmd],
+  ['remove-coins', removeCoinsCmd],
   ['set-rate', setRateCmd],
   ['approve-payment', approvePaymentCmd],
   ['reject-order', rejectOrderCmd],
@@ -56,13 +88,22 @@ export const commandMap = new Map([
   ['order', orderCmd],
   ['orderhistory', orderHistoryCmd],
   ['dropbox', dropboxCmd],
+  ['dropbox-delete', dropboxDeleteCmd],
   ['remove-item', removeItemCmd],
+  ['game-settings', gameSettingsCmd],
+  ['game-toggle', gameToggleCmd],
+  ['server-config', serverConfigCmd],
 
   // Bot Owner
   ['admin-add', adminAddCmd],
   ['admin-remove', adminRemoveCmd],
   ['admin-list', adminListCmd],
   ['clearserver', clearServerCmd],
+  ['server', serverCmd],
+  ['bot-blacklist', botBlacklistCmd],
+  ['bot-unblacklist', botUnblacklistCmd],
+  ['bot-stats', botStatsCmd],
+  ['bot-guilds', botGuildsCmd],
 ]);
 
 // All slash command definitions for deployment
@@ -73,16 +114,26 @@ export const commands = [
   buyItemCmd.data,
   buyCoinCmd.data,
   walletCmd.data,
+  wallet2Cmd.data,
   profileCmd.data,
   transactionsCmd.data,
   itemCmd.data,
+  inventoryCmd.data,
+  dashboardCmd.data,
+  transferCmd.data,
+  mineCmd.data,
+  coinflipCmd.data,
+  guessCmd.data,
+  rpsCmd.data,
+  leaderboardCmd.data,
+  historyCmd.data,
 
   // Admin
   createItemCmd.data,
   editItemCmd.data,
   deleteItemCmd.data,
   giveCoinsCmd.data,
-  takeCoinsCmd.data,
+  removeCoinsCmd.data,
   setRateCmd.data,
   approvePaymentCmd.data,
   rejectOrderCmd.data,
@@ -90,13 +141,22 @@ export const commands = [
   orderCmd.data,
   orderHistoryCmd.data,
   dropboxCmd.data,
+  dropboxDeleteCmd.data,
   removeItemCmd.data,
+  gameSettingsCmd.data,
+  gameToggleCmd.data,
+  serverConfigCmd.data,
 
   // Bot Owner
   adminAddCmd.data,
   adminRemoveCmd.data,
   adminListCmd.data,
   clearServerCmd.data,
+  serverCmd.data,
+  botBlacklistCmd.data,
+  botUnblacklistCmd.data,
+  botStatsCmd.data,
+  botGuildsCmd.data,
 ].map(c => c.toJSON());
 
 // ─── Main Slash Command Router ────────────────────────────────────────────────
@@ -125,13 +185,21 @@ export async function handleCommand(interaction) {
   }
 }
 
-// ─── Component Router (Pagination Buttons & Help Category Buttons) ───────────
+// ─── Component Router (Pagination Buttons & Game Clicks) ─────────────────────
 export async function handleComponent(interaction) {
+  // Mines Game Button Router
+  if (interaction.isButton() && interaction.customId.startsWith('mine:')) {
+    return handleMineButton(interaction);
+  }
+
   if ((interaction.isButton() || interaction.isStringSelectMenu()) && interaction.customId.startsWith('shop_')) {
     return shopCmd.component(interaction);
   }
 
-  if (interaction.isButton() && interaction.customId.startsWith('item_page_')) {
+  if (
+    interaction.isButton() &&
+    (interaction.customId.startsWith('item_page_') || interaction.customId.startsWith('inv_page_'))
+  ) {
     return itemCmd.component(interaction);
   }
 
@@ -144,7 +212,14 @@ export async function handleComponent(interaction) {
   }
 
   if (interaction.isButton() && interaction.customId.startsWith('prof_')) {
-    return profileCmd.component(interaction);
+    if (
+      interaction.customId.startsWith('prof_vip_') ||
+      interaction.customId.startsWith('prof_gamehist_') ||
+      interaction.customId.startsWith('prof_grefresh_')
+    ) {
+      return profileCmd.component(interaction);
+    }
+    return wallet2Cmd.component(interaction);
   }
 
   if ((interaction.isButton() || interaction.isStringSelectMenu()) && interaction.customId.startsWith('remove_item_')) {
@@ -170,6 +245,22 @@ export async function handleComponent(interaction) {
       interaction.customId.startsWith('keep_guild_'))
   ) {
     return clearServerCmd.component(interaction);
+  }
+
+  if (
+    (interaction.isButton() || interaction.isStringSelectMenu()) &&
+    interaction.customId.startsWith('srv_')
+  ) {
+    return serverCmd.component(interaction);
+  }
+
+  if (interaction.customId.startsWith('guess_')) {
+    return guessCmd.component(interaction);
+  }
+
+  // Rock Paper Scissors Game Button Router
+  if (interaction.isButton() && interaction.customId.startsWith('rps:')) {
+    return rpsCmd.component(interaction);
   }
 }
 

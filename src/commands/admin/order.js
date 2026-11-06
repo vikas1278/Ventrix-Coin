@@ -1,10 +1,12 @@
-import { SlashCommandBuilder, EmbedBuilder } from 'discord.js';
+import { SlashCommandBuilder, EmbedBuilder, PermissionFlagsBits } from 'discord.js';
 import { Order } from '../../models.js';
-import { coinIcon, formatCoins, escapeText, C, err, replyEmbed, adminOnly } from '../../utils/common.js';
+import { formatCoins, escapeText, C, err, replyEmbed, adminOnly } from '../../utils/common.js';
 
 export const data = new SlashCommandBuilder()
   .setName('order')
   .setDescription('Inspect full details, status, and payment logs of an order (admin)')
+  .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+  .setDMPermission(false)
   .addStringOption(o =>
     o
       .setName('order_id')

@@ -1,10 +1,12 @@
-import { SlashCommandBuilder, EmbedBuilder } from 'discord.js';
+import { SlashCommandBuilder, EmbedBuilder, PermissionFlagsBits } from 'discord.js';
 import { Order, Payment, Ledger, UserInventory } from '../../models.js';
 import { escapeText, C, err, replyEmbed, adminOnly } from '../../utils/common.js';
 
 export const data = new SlashCommandBuilder()
   .setName('reject-order')
   .setDescription('Reject a payment order and permanently delete it from DB (admin)')
+  .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+  .setDMPermission(false)
   .addStringOption(o => o.setName('order_id').setDescription('Order ID to reject').setRequired(true))
   .addStringOption(o => o.setName('reason').setDescription('Reason for rejection').setRequired(true));
 

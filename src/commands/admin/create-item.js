@@ -1,4 +1,4 @@
-import { SlashCommandBuilder, EmbedBuilder } from 'discord.js';
+import { SlashCommandBuilder, EmbedBuilder, PermissionFlagsBits } from 'discord.js';
 import { Product } from '../../models.js';
 import { formatCoins, coinIcon, coinName, escapeText, C, err, replyEmbed, adminOnly } from '../../utils/common.js';
 import { parseDuration, formatDuration } from '../../utils/duration.js';
@@ -6,6 +6,8 @@ import { parseDuration, formatDuration } from '../../utils/duration.js';
 export const data = new SlashCommandBuilder()
   .setName('create-item')
   .setDescription('Add a new item to the shop catalogue (admin)')
+  .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+  .setDMPermission(false)
   .addStringOption(o =>
     o.setName('name')
       .setDescription('Item name')
@@ -18,17 +20,18 @@ export const data = new SlashCommandBuilder()
       .setMinValue(1)
   )
   .addStringOption(o =>
-    o.setName('type')
-      .setDescription('Item type: Static (permanent) or Timed (expiring)')
+    o.setName('behavior')
+      .setDescription('Behavior: Permanent Role, Temporary Role, Manual Claim')
       .setRequired(true)
       .addChoices(
-        { name: 'Static (Permanent / Manual Claim)', value: 'STATIC' },
-        { name: 'Timed (Duration-based Expiration)', value: 'TIMED' },
+        { name: '🎭 Permanent Discord Role', value: 'role_permanent' },
+        { name: '⏱️ Temporary Discord Role', value: 'role_temporary' },
+        { name: '🎫 Manual Claim / Staff Ticket', value: 'manual_claim' },
       )
   )
-  .addStringOption(o =>
-    o.setName('description')
-      .setDescription('Item description and details')
+  .addRoleOption(o =>
+    o.setName('role')
+      .setDescription('Discord role associated with this item (required for role items)')
       .setRequired(false)
   )
   .addStringOption(o =>
@@ -36,15 +39,15 @@ export const data = new SlashCommandBuilder()
       .setDescription('Duration for timed items (e.g. 1m, 1h, 7d, 30d, 2h30m)')
       .setRequired(false)
   )
-  .addRoleOption(o =>
-    o.setName('role')
-      .setDescription('Discord role associated with this item')
-      .setRequired(false)
-  )
   .addIntegerOption(o =>
     o.setName('stock')
       .setDescription('Available quantity limit (leave empty for unlimited)')
       .setMinValue(1)
+      .setRequired(false)
+  )
+  .addStringOption(o =>
+    o.setName('description')
+      .setDescription('Item description and details')
       .setRequired(false)
   )
   .addStringOption(o =>
@@ -60,7 +63,8 @@ export async function execute(interaction) {
 
   const name = interaction.options.getString('name').trim();
   const price = interaction.options.getInteger('price');
-  const type = interaction.options.getString('type');
+  const behaviorType = interaction.options.getString('behavior') || 'manual_claim';
+  const type = (behaviorType === 'role_temporary' || behaviorType === 'consumable') ? 'TIMED' : 'STATIC';
   const description = interaction.options.getString('description') || '';
   const rawDuration = interaction.options.getString('duration')?.trim() || '';
   const role = interaction.options.getRole('role');
@@ -69,6 +73,16 @@ export async function execute(interaction) {
 
   if (imageUrl && !/^https:\/\//i.test(imageUrl)) {
     return replyEmbed(interaction, err('Invalid Image URL', 'The image URL must start with `https://`.'));
+  }
+
+  if ((behaviorType === 'role_permanent' || behaviorType === 'role_temporary') && !role) {
+    return replyEmbed(
+      interaction,
+      err(
+        'Discord Role Required',
+        `You selected **${behaviorType === 'role_permanent' ? 'Permanent Role' : 'Temporary Role'}**, please specify the \`role\` option for this item.`
+      )
+    );
   }
 
   let durationMs = 0;
@@ -96,16 +110,6 @@ export async function execute(interaction) {
     }
     durationMs = parsed;
     formattedDuration = formatDuration(durationMs);
-  }
-
-  // Determine behavior type
-  let behaviorType = 'manual_claim';
-  if (role) {
-    behaviorType = type === 'TIMED' ? 'role_temporary' : 'role_permanent';
-  } else if (type === 'TIMED') {
-    behaviorType = 'consumable';
-  } else {
-    behaviorType = 'manual_claim';
   }
 
   const product = await Product.create({

@@ -1,7 +1,7 @@
 import { google } from 'googleapis';
 import { Order, Payment } from '../models.js';
 import { creditVerifiedPayment } from './credit.js';
-import { money, formatCoins, coinIcon, coinName, escapeText } from '../utils/common.js';
+import { money, formatCoins, coinName, escapeText } from '../utils/common.js';
 
 function gmailClient() {
   const oauth = new google.auth.OAuth2(

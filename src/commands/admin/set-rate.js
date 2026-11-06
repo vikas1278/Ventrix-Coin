@@ -1,9 +1,11 @@
-import { SlashCommandBuilder, EmbedBuilder } from 'discord.js';
+import { SlashCommandBuilder, EmbedBuilder, PermissionFlagsBits } from 'discord.js';
 import { setCoinRate, inrToCoins, formatCoins, coinIcon, coinName, C, err, replyEmbed, adminOnly } from '../../utils/common.js';
 
 export const data = new SlashCommandBuilder()
   .setName('set-rate')
   .setDescription('Configure the coin conversion rate: how many coins per 1 INR (admin)')
+  .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+  .setDMPermission(false)
   .addNumberOption(o => o.setName('rate').setDescription('Coins per 1 INR (e.g. 1 means ₹100 = 100 coins)').setRequired(true).setMinValue(0.01));
 
 export async function execute(interaction) {

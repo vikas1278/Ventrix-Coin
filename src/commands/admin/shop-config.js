@@ -1,11 +1,13 @@
-import { SlashCommandBuilder, EmbedBuilder } from 'discord.js';
+import { SlashCommandBuilder, EmbedBuilder, PermissionFlagsBits } from 'discord.js';
 import { Product, Order } from '../../models.js';
 import config from '../../config.js';
 import { getCoinRate, coinIcon, coinName, C, err, replyEmbed, adminOnly } from '../../utils/common.js';
 
 export const data = new SlashCommandBuilder()
   .setName('shop-config')
-  .setDescription('Show shop setup status, conversion rate, and payment health (admin)');
+  .setDescription('Show shop setup status, conversion rate, and payment health (admin)')
+  .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+  .setDMPermission(false);
 
 export async function execute(interaction) {
   if (!adminOnly(interaction)) {

@@ -5,6 +5,7 @@ import {
   ButtonBuilder,
   ButtonStyle,
   MessageFlags,
+  PermissionFlagsBits,
 } from 'discord.js';
 import {
   Wallet,
@@ -19,12 +20,17 @@ import {
   DropboxDrop,
   DropboxClaim,
   Guild,
+  GameSettings,
+  MineSession,
+  GameHistory,
 } from '../../models.js';
-import { ownerOnly, C, err, ok, replyEmbed } from '../../utils/common.js';
+import { ownerOnly, C, err, replyEmbed } from '../../utils/common.js';
 
 export const data = new SlashCommandBuilder()
   .setName('clearserver')
   .setDescription('Wipe all database records for a specific Discord server (Bot Owner Only)')
+  .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+  .setDMPermission(false)
   .addStringOption(o =>
     o
       .setName('server')
@@ -107,6 +113,9 @@ export async function getGuildRecordCounts(guildId) {
     dropboxDrops,
     dropboxClaims,
     configs,
+    gameSettings,
+    mineSessions,
+    gameHistories,
   ] = await Promise.all([
     Wallet.countDocuments({ guildId }),
     Product.countDocuments({ guildId }),
@@ -119,6 +128,9 @@ export async function getGuildRecordCounts(guildId) {
     DropboxDrop.countDocuments({ guildId }),
     DropboxClaim.countDocuments({ guildId }),
     Config.countDocuments({ guildId }),
+    GameSettings.countDocuments({ guildId }),
+    MineSession.countDocuments({ guildId }),
+    GameHistory.countDocuments({ guildId }),
   ]);
 
   const total =
@@ -132,7 +144,10 @@ export async function getGuildRecordCounts(guildId) {
     dropboxEvents +
     dropboxDrops +
     dropboxClaims +
-    configs;
+    configs +
+    gameSettings +
+    mineSessions +
+    gameHistories;
 
   return {
     wallets,
@@ -146,6 +161,9 @@ export async function getGuildRecordCounts(guildId) {
     dropboxDrops,
     dropboxClaims,
     configs,
+    gameSettings,
+    mineSessions,
+    gameHistories,
     total,
   };
 }
@@ -163,6 +181,9 @@ export async function wipeGuildData(guildId) {
     drRes,
     dcRes,
     cfgRes,
+    gsRes,
+    msRes,
+    ghRes,
     gRes,
   ] = await Promise.all([
     Wallet.deleteMany({ guildId }),
@@ -176,6 +197,9 @@ export async function wipeGuildData(guildId) {
     DropboxDrop.deleteMany({ guildId }),
     DropboxClaim.deleteMany({ guildId }),
     Config.deleteMany({ guildId }),
+    GameSettings.deleteMany({ guildId }),
+    MineSession.deleteMany({ guildId }),
+    GameHistory.deleteMany({ guildId }),
     Guild.deleteOne({ guildId }),
   ]);
 
@@ -191,6 +215,9 @@ export async function wipeGuildData(guildId) {
     dropboxDrops: drRes.deletedCount,
     dropboxClaims: dcRes.deletedCount,
     configs: cfgRes.deletedCount,
+    gameSettings: gsRes.deletedCount,
+    mineSessions: msRes.deletedCount,
+    gameHistories: ghRes.deletedCount,
     guildDeleted: gRes.deletedCount > 0,
     totalDeleted:
       wRes.deletedCount +
@@ -203,7 +230,10 @@ export async function wipeGuildData(guildId) {
       evRes.deletedCount +
       drRes.deletedCount +
       dcRes.deletedCount +
-      cfgRes.deletedCount,
+      cfgRes.deletedCount +
+      gsRes.deletedCount +
+      msRes.deletedCount +
+      ghRes.deletedCount,
   };
 }
 
@@ -228,7 +258,7 @@ export async function execute(interaction) {
 
   if (counts.total === 0) {
     const emptyEmbed = new EmbedBuilder()
-      .setColor(C.accent)
+      .setColor(C.brand)
       .setTitle('🔍 No Records Found')
       .setDescription(
         `No database records were found for server:\n**${serverName}** (\`${targetGuildId}\`).\n\nThe database has zero footprint for this server.`
@@ -344,7 +374,7 @@ export async function component(interaction) {
   if (id.startsWith('keep_guild_')) {
     const targetGuildId = id.replace('keep_guild_', '');
     const keepEmbed = new EmbedBuilder()
-      .setColor(C.primary)
+      .setColor(C.brand)
       .setTitle('💾 Data Retained')
       .setDescription(
         `Database records for server \`${targetGuildId}\` have been preserved.\n\nIf the bot is re-invited, all member balances and store items will be restored. You can also wipe it anytime using \`/clearserver\`.`

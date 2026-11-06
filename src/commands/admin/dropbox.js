@@ -19,8 +19,6 @@ import {
 import { parseDuration, formatDuration } from '../../utils/duration.js';
 import {
   formatCoins,
-  coinIcon,
-  coinTitleIcon,
   escapeText,
   C,
   err,
@@ -33,6 +31,8 @@ import {
 export const data = new SlashCommandBuilder()
   .setName('dropbox')
   .setDescription('Manage automated multi-drop coin distribution events (Admin)')
+  .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+  .setDMPermission(false)
   // Subcommand: setup
   .addSubcommand(sub =>
     sub
@@ -86,6 +86,23 @@ export const data = new SlashCommandBuilder()
           .setDescription('Required when channel mode is specific')
           .setRequired(false)
           .addChannelTypes(ChannelType.GuildText)
+      )
+      .addStringOption(o =>
+        o
+          .setName('distribution_mode')
+          .setDescription('Reward mode: equal split or ranked fastest-finger-first')
+          .setRequired(false)
+          .addChoices(
+            { name: '⚡ Ranked (Fastest get more, integer whole coins)', value: 'ranked' },
+            { name: '🤝 Equal Split (Distributed equally)', value: 'equal' }
+          )
+      )
+      .addIntegerOption(o =>
+        o
+          .setName('max_claimants')
+          .setDescription('Max users who can claim (e.g. 10). Leave empty for unlimited.')
+          .setRequired(false)
+          .setMinValue(1)
       )
       .addStringOption(o =>
         o.setName('image').setDescription('Optional announcement image URL').setRequired(false)
@@ -142,6 +159,15 @@ export const data = new SlashCommandBuilder()
       .addStringOption(o =>
         o.setName('event_id').setDescription('Event ID to inspect').setRequired(true).setAutocomplete(true)
       )
+  )
+  // Subcommand: delete
+  .addSubcommand(sub =>
+    sub
+      .setName('delete')
+      .setDescription('Permanently delete a completed, cancelled or old Dropbox event from database')
+      .addStringOption(o =>
+        o.setName('event_id').setDescription('Event ID to delete').setRequired(true).setAutocomplete(true)
+      )
   );
 
 export async function execute(interaction) {
@@ -166,6 +192,8 @@ export async function execute(interaction) {
       return handleCancelPrompt(interaction);
     case 'logs':
       return handleLogs(interaction);
+    case 'delete':
+      return handleDelete(interaction);
     default:
       return replyEmbed(interaction, err('Unknown Subcommand', `Subcommand \`${sub}\` not recognized.`));
   }
@@ -182,6 +210,8 @@ async function handleSetup(interaction) {
   const dropChannel = interaction.options.getChannel('drop_channel');
   const logChannel = interaction.options.getChannel('log_channel');
   const startMode = interaction.options.getString('start_mode');
+  const distributionMode = interaction.options.getString('distribution_mode') || 'equal';
+  const maxClaimants = interaction.options.getInteger('max_claimants') || 0;
   const imageUrl = interaction.options.getString('image')?.trim() || '';
 
   // 1. Validate intervals
@@ -280,6 +310,8 @@ async function handleSetup(interaction) {
     dropChannelId: dropChannel?.id || null,
     logChannelId: logChannel.id,
     startMode,
+    distributionMode,
+    maxClaimants,
     status: 'pending_setup',
   });
 
@@ -294,6 +326,8 @@ async function handleSetup(interaction) {
       { name: '🪙 Coins per Drop', value: `**${formatCoins(coins)}**`, inline: true },
       { name: '📦 Total Drops', value: `**${totalDrops}** drops`, inline: true },
       { name: '💰 Total Event Pool', value: `**${formatCoins(totalPool)}**`, inline: true },
+      { name: '⚡ Mode', value: distributionMode === 'ranked' ? '`RANKED (Fastest-Finger)`' : '`EQUAL SPLIT`', inline: true },
+      { name: '🎯 Claim Limit', value: maxClaimants > 0 ? `\`${maxClaimants} Claimants\`` : '`Unlimited`', inline: true },
       { name: '⏱️ Drop Interval', value: `\`${formatDuration(intervalMs)}\``, inline: true },
       { name: '⏳ Claim Duration', value: `\`${formatDuration(claimDurationMs)}\``, inline: true },
       { name: '🚀 Start Mode', value: `\`${startMode.toUpperCase()}\``, inline: true },
@@ -416,6 +450,8 @@ async function handleStatus(interaction) {
       { name: '🪙 Pool per Drop', value: `**${formatCoins(event.coins)}**`, inline: true },
       { name: '📦 Progress', value: `**${event.completedDrops} / ${event.totalDrops}** drops completed`, inline: true },
       { name: '💰 Total Pool', value: `**${formatCoins(totalPool)}**`, inline: true },
+      { name: '⚡ Mode', value: event.distributionMode === 'ranked' ? '`RANKED (Fastest-Finger)`' : '`EQUAL SPLIT`', inline: true },
+      { name: '🎯 Claim Limit', value: event.maxClaimants > 0 ? `\`${event.maxClaimants} Claimants\`` : '`Unlimited`', inline: true },
       { name: '⏱️ Interval', value: `\`${event.intervalStr}\``, inline: true },
       { name: '⏳ Claim Duration', value: `\`${event.claimDurationStr}\``, inline: true },
       {
@@ -721,13 +757,73 @@ export async function component(interaction) {
   }
 }
 
+// ─── 8. DELETE SUBCOMMAND ─────────────────────────────────────────────────────
+async function handleDelete(interaction) {
+  const eventId = interaction.options.getString('event_id').trim();
+  const guildId = interaction.guildId;
+
+  if (eventId.toLowerCase() === 'all_ended' || eventId.toLowerCase() === 'clear_ended') {
+    const endedEvents = await DropboxEvent.find({
+      guildId,
+      status: { $in: ['completed', 'cancelled'] },
+    }).select('eventId').lean();
+
+    if (endedEvents.length === 0) {
+      return replyEmbed(
+        interaction,
+        info('No Ended Dropboxes', 'There are no completed or cancelled Dropbox events to clear in this server.')
+      );
+    }
+
+    const eventIds = endedEvents.map(e => e.eventId);
+    await DropboxEvent.deleteMany({ guildId, eventId: { $in: eventIds } });
+    await DropboxDrop.deleteMany({ eventId: { $in: eventIds } });
+    await DropboxClaim.deleteMany({ eventId: { $in: eventIds } });
+
+    return replyEmbed(
+      interaction,
+      ok(
+        '🧹 Ended Dropboxes Cleared',
+        `Successfully deleted **${eventIds.length}** ended/cancelled Dropbox event(s) and all their associated records from the database.`
+      )
+    );
+  }
+
+  const event = await DropboxEvent.findOne({ eventId, guildId });
+  if (!event) {
+    return replyEmbed(
+      interaction,
+      err('Event Not Found', `No Dropbox event found with ID \`${eventId}\` in this server.`)
+    );
+  }
+
+  // Cancel any active timers if event is still active/ready
+  if (event.status === 'active' || event.status === 'ready') {
+    await cancelEvent(interaction.client, eventId, 'Event deleted by admin', interaction.user.id).catch(() => {});
+  }
+
+  // Permanently delete event and all related drop messages and claim records
+  await DropboxEvent.deleteOne({ eventId, guildId });
+  await DropboxDrop.deleteMany({ eventId });
+  await DropboxClaim.deleteMany({ eventId });
+
+  return replyEmbed(
+    interaction,
+    ok(
+      'Dropbox Event Deleted',
+      `Dropbox event \`${eventId}\` and its drop records have been permanently deleted from the database.`
+    )
+  );
+}
+
 // ─── AUTOCOMPLETE ROUTER ──────────────────────────────────────────────────────
 export async function autocomplete(interaction) {
   try {
+    const sub = interaction.options.getSubcommand(false);
     const focusedValue = interaction.options.getFocused().trim();
     const filter = { guildId: interaction.guildId };
 
-    if (focusedValue) {
+    if (focusedValue && focusedValue.toLowerCase() !== 'all_ended') {
       filter.eventId = { $regex: new RegExp(focusedValue, 'i') };
     }
 
@@ -738,7 +834,14 @@ export async function autocomplete(interaction) {
       value: e.eventId,
     }));
 
-    return interaction.respond(choices).catch(() => {});
+    if (sub === 'delete' && (!focusedValue || 'all ended clear'.includes(focusedValue.toLowerCase()))) {
+      choices.unshift({
+        name: '🧹 Clear ALL Ended & Cancelled Dropboxes',
+        value: 'all_ended',
+      });
+    }
+
+    return interaction.respond(choices.slice(0, 25)).catch(() => {});
   } catch {
     return interaction.respond([]).catch(() => {});
   }

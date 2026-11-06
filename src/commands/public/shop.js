@@ -8,7 +8,7 @@ import {
   MessageFlags
 } from 'discord.js';
 import { Product } from '../../models.js';
-import { formatCoins, coinIcon, coinName, config, escapeText } from '../../utils/common.js';
+import { formatCoins, coinName, config, escapeText } from '../../utils/common.js';
 import { buildInventoryEmbed } from './item.js';
 
 export const data = new SlashCommandBuilder()
@@ -374,7 +374,8 @@ export async function component(interaction) {
 
   // 3. View Inventory Button (Always Private / Ephemeral)
   if (interaction.isButton() && interaction.customId.includes('view_inventory')) {
-    const { embed, row } = await buildInventoryEmbed(interaction.user.id, guildId, 1);
+    const avatarUrl = interaction.user?.displayAvatarURL ? interaction.user.displayAvatarURL({ extension: 'png', size: 256 }) : null;
+    const { embed, row } = await buildInventoryEmbed(interaction.user.id, guildId, 1, interaction.user.id, null, avatarUrl);
     const components = row ? [row] : [];
     return interaction.reply({
       embeds: [embed],

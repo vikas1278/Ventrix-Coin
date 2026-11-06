@@ -1,6 +1,7 @@
 import { SlashCommandBuilder, EmbedBuilder } from 'discord.js';
 import { Product, Order, Wallet, Ledger, UserInventory } from '../../models.js';
 import { formatCoins, coinIcon, coinName, newOrderId, escapeText, C, err, replyEmbed } from '../../utils/common.js';
+import { parseDuration } from '../../utils/duration.js';
 
 export const data = new SlashCommandBuilder()
   .setName('buyitem')
@@ -171,7 +172,7 @@ export async function execute(interaction) {
       behaviorType: product.behaviorType || 'manual_claim',
       roleId: product.roleId || null,
       duration: product.duration || '',
-      durationMs: product.durationMs || 0,
+      durationMs: product.durationMs || (product.duration ? parseDuration(product.duration) : 0) || 0,
       quantity: 1,
       purchasedAt: new Date(),
       expiresAt: null,

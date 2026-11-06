@@ -1,4 +1,4 @@
-import { SlashCommandBuilder, EmbedBuilder } from 'discord.js';
+import { SlashCommandBuilder, EmbedBuilder, PermissionFlagsBits } from 'discord.js';
 import { Product } from '../../models.js';
 import { formatCoins, coinIcon, coinName, escapeText, C, err, replyEmbed, adminOnly } from '../../utils/common.js';
 import { parseDuration, formatDuration } from '../../utils/duration.js';
@@ -6,6 +6,8 @@ import { parseDuration, formatDuration } from '../../utils/duration.js';
 export const data = new SlashCommandBuilder()
   .setName('edit-item')
   .setDescription('Edit an existing shop item (admin)')
+  .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+  .setDMPermission(false)
   .addStringOption(o =>
     o.setName('id')
       .setDescription('Select item or enter Product ID')
@@ -15,8 +17,18 @@ export const data = new SlashCommandBuilder()
   .addStringOption(o => o.setName('name').setDescription('New item name').setRequired(false))
   .addIntegerOption(o => o.setName('price').setDescription('New price in coins').setMinValue(1).setRequired(false))
   .addStringOption(o =>
+    o.setName('behavior')
+      .setDescription('New behavior type')
+      .setRequired(false)
+      .addChoices(
+        { name: '🎭 Permanent Discord Role', value: 'role_permanent' },
+        { name: '⏱️ Temporary Discord Role', value: 'role_temporary' },
+        { name: '🎫 Manual Claim / Staff Ticket', value: 'manual_claim' },
+      )
+  )
+  .addStringOption(o =>
     o.setName('type')
-      .setDescription('New item type')
+      .setDescription('New item type (STATIC or TIMED)')
       .setRequired(false)
       .addChoices(
         { name: 'Static (Permanent / Manual Claim)', value: 'STATIC' },
@@ -43,6 +55,7 @@ export async function execute(interaction) {
 
   const n = interaction.options.getString('name');
   const price = interaction.options.getInteger('price');
+  const behavior = interaction.options.getString('behavior');
   const type = interaction.options.getString('type');
   const rawDuration = interaction.options.getString('duration');
   const role = interaction.options.getRole('role');
@@ -61,7 +74,10 @@ export async function execute(interaction) {
     p.imageUrl = image;
   }
 
-  if (type !== null) {
+  if (behavior !== null) {
+    p.behaviorType = behavior;
+    p.type = (behavior === 'role_temporary' || behavior === 'consumable') ? 'TIMED' : 'STATIC';
+  } else if (type !== null) {
     p.type = type;
   }
 
@@ -91,13 +107,15 @@ export async function execute(interaction) {
     p.stock = stock < 0 ? null : stock;
   }
 
-  // Update behavior type based on current or new attributes
-  if (p.roleId) {
-    p.behaviorType = p.type === 'TIMED' ? 'role_temporary' : 'role_permanent';
-  } else if (p.type === 'TIMED') {
-    p.behaviorType = 'consumable';
-  } else {
-    p.behaviorType = 'manual_claim';
+  // Update behavior type based on current or new attributes if behavior option wasn't explicitly provided
+  if (behavior === null) {
+    if (p.roleId) {
+      p.behaviorType = p.type === 'TIMED' ? 'role_temporary' : 'role_permanent';
+    } else if (p.type === 'TIMED') {
+      p.behaviorType = 'consumable';
+    } else {
+      p.behaviorType = 'manual_claim';
+    }
   }
 
   await p.save();

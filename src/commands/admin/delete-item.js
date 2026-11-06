@@ -1,10 +1,12 @@
-import { SlashCommandBuilder, EmbedBuilder } from 'discord.js';
+import { SlashCommandBuilder, EmbedBuilder, PermissionFlagsBits } from 'discord.js';
 import { Product } from '../../models.js';
 import { formatCoins, escapeText, C, err, replyEmbed, adminOnly } from '../../utils/common.js';
 
 export const data = new SlashCommandBuilder()
   .setName('delete-item')
   .setDescription('Deactivate an item from the shop (admin)')
+  .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+  .setDMPermission(false)
   .addStringOption(o => o.setName('id').setDescription('Select item or enter Product ID').setRequired(true).setAutocomplete(true));
 
 export async function execute(interaction) {

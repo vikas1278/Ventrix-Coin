@@ -1,9 +1,11 @@
-import { SlashCommandBuilder, EmbedBuilder } from 'discord.js';
+import { SlashCommandBuilder, EmbedBuilder, PermissionFlagsBits } from 'discord.js';
 import { ownerOnly, listAllAdmins, escapeText, C, err, replyEmbed } from '../../utils/common.js';
 
 export const data = new SlashCommandBuilder()
   .setName('admin-list')
-  .setDescription('View all bot owners and administrators (Bot Owner Only)');
+  .setDescription('View all bot owners and administrators (Bot Owner Only)')
+  .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+  .setDMPermission(false);
 
 export async function execute(interaction) {
   if (!ownerOnly(interaction)) {

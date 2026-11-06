@@ -1,4 +1,4 @@
-import { SlashCommandBuilder } from 'discord.js';
+import { SlashCommandBuilder, PermissionFlagsBits } from 'discord.js';
 import { Order } from '../../models.js';
 import { money, formatCoins, coinIcon, coinName, ok, err, replyEmbed, adminOnly } from '../../utils/common.js';
 import { creditVerifiedPayment } from '../../services/credit.js';
@@ -6,6 +6,8 @@ import { creditVerifiedPayment } from '../../services/credit.js';
 export const data = new SlashCommandBuilder()
   .setName('approve-payment')
   .setDescription('Manually verify and credit an ambiguous or unmatched UPI payment (admin)')
+  .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+  .setDMPermission(false)
   .addStringOption(o => o.setName('order_id').setDescription('Order ID').setRequired(true))
   .addNumberOption(o => o.setName('amount').setDescription('Exact amount received in INR').setRequired(true).setMinValue(0.01))
   .addStringOption(o => o.setName('rrn').setDescription('RRN / UTR from bank statement').setRequired(true));

@@ -4,239 +4,190 @@ import {
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
-  AttachmentBuilder,
   MessageFlags
 } from 'discord.js';
-import { Wallet, Ledger, UserInventory } from '../../models.js';
+import { Wallet, GameHistory } from '../../models.js';
 import {
   coinName,
-  adminOnly,
-  ownerOnly,
-  isAdmin,
-  isOwner
+  coinIcon,
+  formatCoins,
+  getMemberTier,
+  getTierTheme
 } from '../../utils/common.js';
-import config from '../../config.js';
-import { generateProfileCardImage } from '../../utils/profile-card.js';
-import { buildShopCatalogueEmbed } from './shop.js';
-import { buildLedgerEmbed } from './wallet.js';
+import { buildProfileCardPayload } from './wallet-2.js';
 
 export const data = new SlashCommandBuilder()
-  .setName('wallet-2')
-  .setDescription('View your interactive graphical VIP Wallet 2.0 card and stats')
-  .addUserOption(o => o.setName('user').setDescription('Inspect another member\'s card (Admin only)').setRequired(false));
-
-/**
- * Calculates user membership tier badge text based on permissions, roles, and balance
- */
-function getMemberTier(balance, userId, member = null) {
-  // 1. Bot Owner
-  if (isOwner(userId)) return 'OWNER';
-
-  // 2. Admin (MongoDB dynamic admin)
-  if (isAdmin(userId)) return 'ADMIN';
-
-  // 3. Staff (Discord Staff Role ID configured in config.js)
-  const staffRoleId = config.staffRoleId;
-  if (staffRoleId && member?.roles?.cache?.has(staffRoleId)) {
-    return 'STAFF';
-  }
-
-  // 4. Wallet Balance-Based Tiers
-  const limits = config.tierThresholds || { diamond: 5000, gold: 2000, silver: 500, vip: 100 };
-  if (balance >= limits.diamond) return 'DIAMOND';
-  if (balance >= limits.gold) return 'GOLD';
-  if (balance >= limits.silver) return 'SILVER';
-  if (balance >= (limits.vip ?? 100)) return 'VIP';
-  return 'MEMBER';
-}
-
-/**
- * Fetches stats, generates the graphical PNG card, and prepares the Discord embed payload
- */
-export async function buildProfileCardPayload(targetUser, guildId, callerId, member = null) {
-  const userId = targetUser.id;
-
-  // 1. Fetch wallet balance
-  const wallet = await Wallet.findOne({ guildId: { $in: [guildId, 'global', 'DM'] }, userId }).lean();
-  const balance = wallet?.balance || 0;
-
-  // 2. Aggregate Ledger Statistics (Total Purchased & Total Spent)
-  const ledgerEntries = await Ledger.find({
-    userId,
-    guildId: { $in: [guildId, 'global', 'DM'] }
-  }).lean();
-
-  let totalPurchased = 0;
-  let totalSpent = 0;
-
-  for (const entry of ledgerEntries) {
-    if (entry.type === 'purchase_credit' || (entry.type === 'admin_grant' && entry.coins > 0)) {
-      totalPurchased += Math.abs(entry.coins);
-    } else if (entry.type === 'shop_purchase' || entry.type === 'admin_deduct') {
-      totalSpent += Math.abs(entry.coins);
-    }
-  }
-
-  const tier = getMemberTier(balance, userId, member);
-  const avatarUrl = targetUser.displayAvatarURL({ extension: 'png', size: 256, forceStatic: true });
-
-  // 3. Generate High-Res Graphical Card (PNG)
-  const imageBuffer = await generateProfileCardImage({
-    username: targetUser.displayName || targetUser.username,
-    userId: targetUser.id,
-    avatarUrl,
-    tierBadge: tier,
-    balance,
-    totalPurchased,
-    totalSpent
-  });
-
-  const attachment = new AttachmentBuilder(imageBuffer, { name: 'profile-card.png' });
-
-  // 4. Clean Embed Displaying the Rendered Card
-  const embed = new EmbedBuilder()
-    .setColor(0x7c3aed)
-    .setImage('attachment://profile-card.png');
-
-  // 5. Interactive Action Buttons (Green & Blue)
-  const actionRow = new ActionRowBuilder().addComponents(
-    new ButtonBuilder()
-      .setCustomId(`prof_ledger_${userId}_${callerId}`)
-      .setLabel('History')
-      .setEmoji('📜')
-      .setStyle(ButtonStyle.Success),
-    new ButtonBuilder()
-      .setCustomId(`prof_refresh_${userId}_${callerId}`)
-      .setLabel('Refresh')
-      .setEmoji('🔄')
-      .setStyle(ButtonStyle.Primary)
+  .setName('profile')
+  .setDescription('View a player\'s gaming and coin profile')
+  .addUserOption(option =>
+    option
+      .setName('user')
+      .setDescription('Player to inspect')
+      .setRequired(false)
   );
 
-  return { embed, attachment, actionRow };
+export async function buildGamingProfileEmbed(targetUser, guildId, member = null) {
+  const userId = targetUser.id;
+  const wallet = await Wallet.findOne({ guildId, userId }).lean();
+
+  const balance = wallet?.balance || 0;
+  const level = wallet?.level || 1;
+  const xp = wallet?.xp || 0;
+  const gamesPlayed = wallet?.gamesPlayed || 0;
+  const wins = wallet?.wins || 0;
+  const losses = wallet?.losses || 0;
+  const winRate = gamesPlayed > 0 ? ((wins / gamesPlayed) * 100).toFixed(1) : '0.0';
+
+  const tier = getMemberTier(balance, userId, member);
+  const theme = getTierTheme(tier);
+
+  const nextLevelXp = level * 250;
+  const currentLevelBaseXp = (level - 1) * 250;
+  const progressInLevel = Math.max(0, xp - currentLevelBaseXp);
+  const xpNeeded = Math.max(0, nextLevelXp - xp);
+  const progressPercent = Math.min(100, Math.round((progressInLevel / 250) * 100));
+
+  // Visual XP progress bar (10 blocks)
+  const filledBlocks = Math.round((progressPercent / 100) * 10);
+  const emptyBlocks = 10 - filledBlocks;
+  const progressBar = '▰'.repeat(filledBlocks) + '▱'.repeat(emptyBlocks);
+
+  const embed = new EmbedBuilder()
+    .setColor(0x7dbbeb)
+    .setTitle(`🎮  ${targetUser.displayName || targetUser.username}'s Profile`)
+    .setThumbnail(targetUser.displayAvatarURL({ dynamic: true, size: 256 }))
+    .setDescription(
+      `**Membership Tier:** ${theme.icon} **${theme.label}**\n` +
+      `**Wallet Balance:** **${formatCoins(balance)}**\n` +
+      `**Progress:** \`${progressBar}\` \`${progressPercent}%\` *(need ${xpNeeded} XP for Lv ${level + 1})*\n\n` +
+      `────────────────────────────────`
+    )
+    .addFields(
+      { name: '🪙 Coin Balance', value: `**${formatCoins(balance)}**`, inline: true },
+      { name: '⭐ Level', value: `\`Level ${level}\``, inline: true },
+      { name: '✨ Total XP', value: `\`${xp.toLocaleString()} XP\``, inline: true },
+      { name: '🎮 Games Played', value: `\`${gamesPlayed.toLocaleString()}\``, inline: true },
+      { name: '🏆 Wins', value: `\`${wins.toLocaleString()}\` (${winRate}%)`, inline: true },
+      { name: '💥 Losses', value: `\`${losses.toLocaleString()}\``, inline: true }
+    )
+    .setFooter({ text: `Virtual coins only • ${coinName()}` })
+    .setTimestamp();
+
+  return embed;
 }
 
-// ─── Slash Command Execution ──────────────────────────────────────────────────
+export function buildProfileButtons(targetUserId, callerId) {
+  return new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`prof_vip_${targetUserId}_${callerId}`)
+      .setLabel('🎨 VIP 2.0 Card')
+      .setStyle(ButtonStyle.Primary),
+    new ButtonBuilder()
+      .setCustomId(`prof_gamehist_${targetUserId}_${callerId}`)
+      .setLabel('📜 Game History')
+      .setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder()
+      .setCustomId(`prof_grefresh_${targetUserId}_${callerId}`)
+      .setLabel('🔄 Refresh')
+      .setStyle(ButtonStyle.Success)
+  );
+}
+
 export async function execute(interaction) {
-  try {
-    await interaction.deferReply();
-  } catch (err) {
-    if (err?.code === 10062) return;
-    throw err;
-  }
-  const targetUser = interaction.options.getUser('user') || interaction.user;
-
-  if (targetUser.id !== interaction.user.id && !adminOnly(interaction)) {
-    return interaction.editReply({
-      content: '❌ Only administrators can inspect another member\'s profile card.'
-    });
-  }
-
-  const guildId = interaction.guildId || 'DM';
-  const member = interaction.guild
-    ? (interaction.guild.members.cache.get(targetUser.id) || await interaction.guild.members.fetch(targetUser.id).catch(() => null))
-    : null;
-  const { embed, attachment, actionRow } = await buildProfileCardPayload(targetUser, guildId, interaction.user.id, member);
-
-  const reply = await interaction.editReply({
-    embeds: [embed],
-    files: [attachment],
-    components: [actionRow]
-  });
-
-  // Automatically remove buttons completely after 3 minutes
-  const collector = reply.createMessageComponentCollector({
-    time: 3 * 60 * 1000 // 3 minutes
-  });
-
-  collector.on('end', async () => {
-    try {
-      await interaction.editReply({
-        components: [] // Completely removes the buttons
-      });
-    } catch (_) {}
-  });
-
-  return reply;
-}
-
-// ─── Component Interactions Router ────────────────────────────────────────────
-export async function component(interaction) {
-  // Check 3-minute expiration guard
-  const msgAge = Date.now() - (interaction.message?.createdTimestamp || 0);
-  if (msgAge > 3 * 60 * 1000) {
-    interaction.message?.edit({ components: [] }).catch(() => {});
+  if (!interaction.guild) {
     return interaction.reply({
-      content: '⏱️ These buttons have timed out after 3 minutes. Please run `/profile` again.',
+      content: '❌ Use `/profile` inside a Discord server.',
       flags: MessageFlags.Ephemeral
     });
   }
 
+  await interaction.deferReply();
+
+  const targetUser = interaction.options.getUser('user') || interaction.user;
+  const member = interaction.guild.members.cache.get(targetUser.id) || await interaction.guild.members.fetch(targetUser.id).catch(() => null);
+
+  const embed = await buildGamingProfileEmbed(targetUser, interaction.guildId, member);
+  const row = buildProfileButtons(targetUser.id, interaction.user.id);
+
+  return interaction.editReply({
+    embeds: [embed],
+    components: [row]
+  });
+}
+
+export async function component(interaction) {
   const parts = interaction.customId.split('_');
-  // Format: prof_<action>_<targetUserId>_<callerId>
   const action = parts[1];
   const targetUserId = parts[2];
   const callerId = parts[3];
 
   if (callerId && interaction.user.id !== callerId) {
     return interaction.reply({
-      content: '❌ Only the user who opened this card can use these buttons. Run `/profile` to open your own!',
+      content: '❌ Only the user who ran `/profile` can use these buttons.',
       flags: MessageFlags.Ephemeral
     });
   }
 
-  const guildId = interaction.guildId || 'DM';
+  const targetUser = await interaction.client.users.fetch(targetUserId).catch(() => interaction.user);
+  const member = interaction.guild
+    ? (interaction.guild.members.cache.get(targetUserId) || await interaction.guild.members.fetch(targetUserId).catch(() => null))
+    : null;
 
-  // 1. Top Up Coins Guide
-  if (action === 'buy') {
-    return interaction.reply({
-      content:
-        `🪙 **How to Top Up ${coinName()}:**\n` +
-        `1. Run \`/buycoin <amount>\` (e.g. \`/buycoin 100\`).\n` +
-        `2. Scan the instant UPI QR code with GPay, PhonePe, or Paytm.\n` +
-        `3. Your coins will be credited automatically to your wallet!`,
-      flags: MessageFlags.Ephemeral
-    });
-  }
-
-  // 2. Open Shop Catalogue
-  if (action === 'shop') {
-    const { card } = await buildShopCatalogueEmbed(guildId, 1, false, interaction.user.id);
-    return interaction.reply({
-      components: [card],
-      flags: [MessageFlags.Ephemeral, MessageFlags.IsComponentsV2]
-    });
-  }
-
-  // 3. Open Private Ledger History
-  if (action === 'ledger') {
-    const { embed, row } = await buildLedgerEmbed(
-      targetUserId,
-      guildId,
-      1,
+  // 1. Open graphical VIP Card
+  if (action === 'vip') {
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    const { embed, attachment } = await buildProfileCardPayload(
+      targetUser,
+      interaction.guildId,
       interaction.user.id,
-      interaction.client
+      member
     );
-    const components = row ? [row] : [];
-    return interaction.reply({
-      embeds: [embed],
-      components,
-      flags: MessageFlags.Ephemeral
-    });
-  }
-
-  // 4. Live Refresh
-  if (action === 'refresh') {
-    await interaction.deferUpdate();
-    const targetUser = await interaction.client.users.fetch(targetUserId).catch(() => interaction.user);
-    const member = interaction.guild
-      ? (interaction.guild.members.cache.get(targetUserId) || await interaction.guild.members.fetch(targetUserId).catch(() => null))
-      : null;
-    const { embed, attachment, actionRow } = await buildProfileCardPayload(targetUser, guildId, callerId, member);
-
     return interaction.editReply({
       embeds: [embed],
-      files: [attachment],
-      components: [actionRow]
+      files: [attachment]
     });
+  }
+
+  // 2. Open Game History
+  if (action === 'gamehist') {
+    const entries = await GameHistory.find({
+      guildId: interaction.guildId,
+      userId: targetUserId
+    })
+      .sort({ createdAt: -1 })
+      .limit(5)
+      .lean();
+
+    if (entries.length === 0) {
+      return interaction.reply({
+        content: `ℹ️ No game history found for <@${targetUserId}>.`,
+        flags: MessageFlags.Ephemeral
+      });
+    }
+
+    const lines = entries.map((x, i) => {
+      const ts = Math.floor(new Date(x.createdAt).getTime() / 1000);
+      const sign = x.net >= 0 ? '+' : '';
+      const badge = x.won ? '🟢' : x.net === 0 ? '⚪' : '🔴';
+      const gameName = x.game === 'mines' ? '💣 Mines' : x.game === 'coinflip' ? '🪙 Coinflip' : x.game;
+      return `**${i + 1}. ${gameName}** (${badge} \`${sign}${x.net.toLocaleString()}\` ${coinIcon()})\n` +
+        `• Bet: \`${x.bet.toLocaleString()}\` · Payout: \`${x.payout.toLocaleString()}\` · <t:${ts}:R>`;
+    });
+
+    const embed = new EmbedBuilder()
+      .setColor(0x7dbbeb)
+      .setTitle(`🧾  Game History — ${targetUser.displayName || targetUser.username}`)
+      .setDescription(lines.join('\n\n'))
+      .setTimestamp();
+
+    return interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
+  }
+
+  // 3. Refresh Profile
+  if (action === 'grefresh') {
+    await interaction.deferUpdate();
+    const embed = await buildGamingProfileEmbed(targetUser, interaction.guildId, member);
+    const row = buildProfileButtons(targetUserId, callerId);
+    return interaction.editReply({ embeds: [embed], components: [row] });
   }
 }

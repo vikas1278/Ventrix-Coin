@@ -1,9 +1,11 @@
-import { SlashCommandBuilder } from 'discord.js';
+import { SlashCommandBuilder, PermissionFlagsBits } from 'discord.js';
 import { ownerOnly, removeAdminUser, ok, err, replyEmbed } from '../../utils/common.js';
 
 export const data = new SlashCommandBuilder()
   .setName('admin-remove')
   .setDescription('Revoke administrator privileges from a member (Bot Owner Only)')
+  .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+  .setDMPermission(false)
   .addUserOption(o => o.setName('user').setDescription('Target member').setRequired(true));
 
 export async function execute(interaction) {

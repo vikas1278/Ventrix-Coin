@@ -23,10 +23,15 @@ const productSchema = new mongoose.Schema({
   durationMs: { type: Number, default: 0 },
   roleId: { type: String, default: null },
   stock: { type: Number, default: null }, // null = unlimited
+  icon: { type: String, default: '👑' },
+  salesCount: { type: Number, default: 0, index: true },
   active: { type: Boolean, default: true, index: true },
   createdBy: { type: String, required: true }
 }, { timestamps: true });
-productSchema.index({ guildId: 1, active: 1 });
+productSchema.index({ guildId: 1, active: 1, behaviorType: 1 });
+productSchema.index({ guildId: 1, active: 1, coins: 1 });
+productSchema.index({ guildId: 1, active: 1, createdAt: -1 });
+productSchema.index({ guildId: 1, active: 1, salesCount: -1 });
 
 // ─── Orders (Coin Purchases via UPI & Item Purchases via Coins) ───────────────
 const orderSchema = new mongoose.Schema({
@@ -56,8 +61,11 @@ const orderSchema = new mongoose.Schema({
     default: 'pending',
     index: true,
   },
-  upiUri: { type: String, default: '' },
-  expiresAt: { type: Date, required: true, index: true },
+  expiresAt: {
+    type: Date,
+    default: () => new Date(Date.now() + 10 * 60 * 1000),
+    index: true,
+  },
   paidAt: { type: Date, default: null },
   rrn: { type: String, default: null, index: true },
   verificationSource: {
@@ -92,7 +100,16 @@ const walletSchema = new mongoose.Schema({
   guildName: { type: String, default: '', index: true },
   userId: { type: String, required: true, index: true },
   username: { type: String, default: '' },
-  balance: { type: Number, default: 0, min: 0 }
+  balance: { type: Number, default: 0, min: 0 },
+  // Gaming stats
+  gamesPlayed: { type: Number, default: 0 },
+  wins: { type: Number, default: 0 },
+  losses: { type: Number, default: 0 },
+  xp: { type: Number, default: 0 },
+  level: { type: Number, default: 1 },
+  warPoints: { type: Number, default: 0 },
+  totalEarned: { type: Number, default: 0 },
+  totalSpent: { type: Number, default: 0 }
 }, { timestamps: true });
 walletSchema.index({ guildId: 1, userId: 1 }, { unique: true });
 
@@ -103,14 +120,33 @@ const ledgerSchema = new mongoose.Schema({
   userId: { type: String, required: true, index: true },
   username: { type: String, default: '' },
   orderId: { type: String, required: true, index: true },
-  rrn: { type: String, required: true, unique: true, index: true },
+  rrn: { type: String, required: true, index: true },
   coins: { type: Number, required: true }, // positive: credit, negative: debit
   type: {
     type: String,
-    enum: ['purchase_credit', 'shop_purchase', 'admin_grant', 'admin_deduct', 'DROPBOX_REWARD'],
+    enum: ['purchase_credit', 'shop_purchase', 'admin_grant', 'admin_deduct', 'DROPBOX_REWARD', 'transfer', 'game_bet', 'game_payout'],
     required: true,
     index: true,
   },
+  direction: {
+    type: String,
+    enum: ['credit', 'debit', 'sent', 'received'],
+    default: null,
+    index: true,
+  },
+  counterparty: { type: String, default: null, index: true },
+  counterpartyUsername: { type: String, default: '' },
+  description: { type: String, default: '' },
+  balanceBefore: { type: Number, default: null },
+  balanceAfter: { type: Number, default: null },
+  status: {
+    type: String,
+    enum: ['completed', 'pending', 'failed', 'rolled_back'],
+    default: 'completed',
+    index: true,
+  },
+  transactionId: { type: String, default: null, index: true },
+  idempotencyKey: { type: String, default: null, index: true, sparse: true },
   reason: { type: String, default: '' },
   performedBy: { type: String, default: 'system' }
 }, { timestamps: true });
@@ -157,7 +193,7 @@ const userInventorySchema = new mongoose.Schema({
   expiresAt: { type: Date, default: null, index: true },
   status: {
     type: String,
-    enum: ['available', 'active', 'consumed', 'expired', 'claim_required'],
+    enum: ['available', 'active', 'consumed', 'expired', 'claim_required', 'assigned'],
     default: 'available',
     index: true
   },
@@ -227,6 +263,8 @@ const dropboxEventSchema = new mongoose.Schema({
   dropChannelId: { type: String, default: null },
   logChannelId: { type: String, required: true },
   startMode: { type: String, enum: ['immediate', 'delayed'], default: 'immediate' },
+  distributionMode: { type: String, enum: ['equal', 'ranked'], default: 'equal' },
+  maxClaimants: { type: Number, default: 0, min: 0 },
   status: {
     type: String,
     enum: ['pending_setup', 'ready', 'active', 'completed', 'cancelled'],
@@ -251,6 +289,8 @@ const dropboxDropSchema = new mongoose.Schema({
   channelId: { type: String, required: true },
   messageId: { type: String, default: null },
   coins: { type: Number, required: true },
+  distributionMode: { type: String, enum: ['equal', 'ranked'], default: 'equal' },
+  maxClaimants: { type: Number, default: 0, min: 0 },
   claimDeadline: { type: Date, required: true, index: true },
   status: {
     type: String,
@@ -274,6 +314,7 @@ const dropboxClaimSchema = new mongoose.Schema({
   dropNumber: { type: Number, required: true },
   guildId: { type: String, required: true, index: true },
   userId: { type: String, required: true, index: true },
+  claimRank: { type: Number, default: 1 },
   rewardCoins: { type: Number, default: 0 },
   paid: { type: Boolean, default: false },
   claimedAt: { type: Date, default: Date.now },
@@ -292,6 +333,68 @@ const guildSchema = new mongoose.Schema({
   lastActiveAt: { type: Date, default: Date.now }
 }, { timestamps: true });
 
+// ─── Server Gaming Settings ──────────────────────────────────────────────────
+const gameSettingsSchema = new mongoose.Schema({
+  guildId: { type: String, required: true, unique: true, index: true },
+  minBet: { type: Number, default: 1, min: 1 },
+  maxBet: { type: Number, default: 1000000, min: 1 },
+  startingCoins: { type: Number, default: 0, min: 0 },
+  disabledGames: { type: [String], default: [] },
+  bettingEnabled: { type: Boolean, default: true },
+  updatedBy: { type: String, default: 'system' }
+}, { timestamps: true });
+
+// ─── Active Mine Game Sessions ───────────────────────────────────────────────
+const mineSessionSchema = new mongoose.Schema({
+  sessionId: { type: String, required: true, unique: true, index: true },
+  guildId: { type: String, required: true, index: true },
+  userId: { type: String, required: true, index: true },
+  playerName: { type: String, default: 'Player' },
+  channelId: { type: String, default: null },
+  messageId: { type: String, default: null },
+  game: { type: String, default: 'mines' },
+  bet: { type: Number, required: true, min: 1 },
+  minePositions: { type: [Number], required: true },
+  revealed: { type: [Number], default: [] },
+  explodedIndex: { type: Number, default: null },
+  status: {
+    type: String,
+    enum: ['active', 'won', 'lost', 'cashed_out', 'expired'],
+    default: 'active',
+    index: true
+  },
+  payout: { type: Number, default: 0 },
+  balanceAfterBet: { type: Number, default: 0 },
+  balanceAfter: { type: Number, default: null },
+  txId: { type: String, default: null },
+  endedAt: { type: Date, default: null },
+  expiresAt: { type: Date, required: true, index: true }
+}, { timestamps: true });
+mineSessionSchema.index({ guildId: 1, userId: 1, status: 1 });
+
+// ─── Game History Records ────────────────────────────────────────────────────
+const gameHistorySchema = new mongoose.Schema({
+  guildId: { type: String, required: true, index: true },
+  userId: { type: String, required: true, index: true },
+  game: { type: String, default: 'mines' },
+  bet: { type: Number, required: true },
+  payout: { type: Number, default: 0 },
+  net: { type: Number, required: true },
+  won: { type: Boolean, default: false },
+  score: { type: Number, default: 0 },
+  description: { type: String, default: '' },
+  sessionId: { type: String, default: '' },
+  txId: { type: String, default: '' }
+}, { timestamps: true });
+gameHistorySchema.index({ guildId: 1, userId: 1, createdAt: -1 });
+
+// ─── Server Blacklist ────────────────────────────────────────────────────────
+const blacklistSchema = new mongoose.Schema({
+  guildId: { type: String, required: true, unique: true, index: true },
+  reason: { type: String, required: true },
+  blacklistedBy: { type: String, required: true }
+}, { timestamps: true });
+
 export const Product        = mongoose.model('Product', productSchema);
 export const Order          = mongoose.model('Order', orderSchema);
 export const Payment        = mongoose.model('Payment', paymentSchema);
@@ -306,5 +409,28 @@ export const DropboxEvent   = mongoose.model('DropboxEvent', dropboxEventSchema)
 export const DropboxDrop    = mongoose.model('DropboxDrop', dropboxDropSchema);
 export const DropboxClaim   = mongoose.model('DropboxClaim', dropboxClaimSchema);
 export const Guild          = mongoose.model('Guild', guildSchema);
+export const GameSettings   = mongoose.model('GameSettings', gameSettingsSchema);
+export const MineSession    = mongoose.model('MineSession', mineSessionSchema);
+export const GameHistory    = mongoose.model('GameHistory', gameHistorySchema);
+export const Blacklist      = mongoose.model('Blacklist', blacklistSchema);
+
+/**
+ * Ensures legacy unique rrn_1 index on ledgers is safely migrated to a non-unique index
+ * so that two-sided transfer records can share transaction reference numbers.
+ */
+export async function migrateLedgerIndexes() {
+  try {
+    if (!Ledger.collection) return;
+    const indexes = await Ledger.collection.indexes();
+    const rrnIndex = indexes.find(i => i.name === 'rrn_1');
+    if (rrnIndex && rrnIndex.unique) {
+      await Ledger.collection.dropIndex('rrn_1').catch(() => {});
+      await Ledger.collection.createIndex({ rrn: 1 }, { background: true }).catch(() => {});
+    }
+  } catch {
+    // Non-fatal if DB not yet initialized or collection absent
+  }
+}
+
 
 

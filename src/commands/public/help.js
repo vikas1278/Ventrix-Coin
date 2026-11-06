@@ -28,6 +28,7 @@ export const data = new SlashCommandBuilder()
         { name: '🏡 Main Menu', value: 'overview' },
         { name: '🛍️ Shop & Items', value: 'shop' },
         { name: '🪙 Coin Economy', value: 'economy' },
+        { name: '🎮 Gaming Hub', value: 'gaming' },
         { name: '🛡️ Admin Controls', value: 'admin' },
         { name: '👑 Owner Commands', value: 'owner' },
         { name: '📖 Quick Guide', value: 'guide' },
@@ -54,9 +55,15 @@ const CATEGORIES = {
         access: 'Everyone'
       },
       {
+        name: 'inventory',
+        description: 'View your purchased items and active roles',
+        usage: '/inventory',
+        access: 'Everyone'
+      },
+      {
         name: 'item',
-        description: 'View inventory or use items',
-        usage: '/item <list|use>',
+        description: 'Use or claim an item from your inventory',
+        usage: '/item use',
         access: 'Everyone'
       }
     ]
@@ -85,15 +92,76 @@ const CATEGORIES = {
         access: 'Everyone'
       },
       {
+        name: 'transfer',
+        description: 'Transfer coins to another member',
+        usage: '/transfer user:<@member/ID> amount:<coins>',
+        access: 'Everyone'
+      },
+      {
         name: 'transactions',
         description: 'View order history',
         usage: '/transactions [user]',
         access: 'Everyone'
       },
       {
+        name: 'dashboard',
+        description: 'Open web dashboard & online control center',
+        usage: '/dashboard',
+        access: 'Everyone'
+      },
+      {
         name: 'help',
         description: 'View help menu',
         usage: '/help [category]',
+        access: 'Everyone'
+      }
+    ]
+  },
+  gaming: {
+    name: 'Gaming Hub',
+    emoji: '🎮',
+    description: 'Play games, compete on leaderboards, and win coins.',
+    commands: [
+      {
+        name: 'mine',
+        description: 'Play 3x3 Mines game with diamonds and cashout',
+        usage: '/mine <bet>',
+        access: 'Everyone'
+      },
+      {
+        name: 'coinflip',
+        description: 'Flip a 3D golden coin for a 2x payout (Heads or Tails)',
+        usage: '/coinflip <bet> <choice>',
+        access: 'Everyone'
+      },
+      {
+        name: 'guess',
+        description: 'Mystery Number Guess game (1-100, 5 attempts, up to 5x payout)',
+        usage: '/guess <bet>',
+        access: 'Everyone'
+      },
+      {
+        name: 'rps',
+        description: 'Play Rock Paper Scissors against the bot for a 2x payout',
+        usage: '/rps <amount>',
+        access: 'Everyone'
+      },
+      {
+        name: 'leaderboard',
+        description: 'View top coin holders and gaming champions',
+        usage: '/leaderboard [sort]',
+        access: 'Everyone'
+      },
+      {
+        name: 'profile',
+        description: 'View player gaming profile, level, XP, and stats',
+        usage: '/profile [user]',
+        access: 'Everyone'
+      },
+      {
+        name: 'history',
+        description: 'View your recent gaming round history',
+        usage: '/history [limit]',
         access: 'Everyone'
       }
     ]
@@ -106,7 +174,7 @@ const CATEGORIES = {
       {
         name: 'create-item',
         description: 'Add new shop item',
-        usage: '/create-item <name> <price> <type> [options...]',
+        usage: '/create-item <name> <price> <behavior> [options...]',
         access: 'Admin'
       },
       {
@@ -123,14 +191,32 @@ const CATEGORIES = {
       },
       {
         name: 'give-coins',
-        description: 'Give coins to user',
-        usage: '/give-coins <user> <amount> <reason>',
+        description: 'Grant coins to user',
+        usage: '/give-coins <user> <amount> [reason]',
         access: 'Admin'
       },
       {
-        name: 'take-coins',
-        description: 'Deduct coins from user',
-        usage: '/take-coins <user> <amount> <reason>',
+        name: 'remove-coins',
+        description: 'Remove coins from user',
+        usage: '/remove-coins <user> <amount> [reason]',
+        access: 'Admin'
+      },
+      {
+        name: 'game-settings',
+        description: 'Configure server min/max bets and starting coins',
+        usage: '/game-settings <min-bet> <max-bet> [starting-coins]',
+        access: 'Admin'
+      },
+      {
+        name: 'game-toggle',
+        description: 'Enable or disable specific games in server',
+        usage: '/game-toggle <game> <enabled>',
+        access: 'Admin'
+      },
+      {
+        name: 'server-config',
+        description: 'View server gaming configuration',
+        usage: '/server-config',
         access: 'Admin'
       },
       {
@@ -176,6 +262,12 @@ const CATEGORIES = {
         access: 'Admin'
       },
       {
+        name: 'dropbox-delete',
+        description: 'Permanently delete a dropbox event from database',
+        usage: '/dropbox-delete <event_id>',
+        access: 'Admin'
+      },
+      {
         name: 'remove-item',
         description: 'Remove item from user inventory',
         usage: '/remove-item [user] [inventory_id] [revoke_role]',
@@ -211,6 +303,36 @@ const CATEGORIES = {
         description: 'Wipe all database records for a server',
         usage: '/clearserver <server>',
         access: 'Owner'
+      },
+      {
+        name: 'server',
+        description: 'View connected servers list or leave a server',
+        usage: '/server <list|remove>',
+        access: 'Owner'
+      },
+      {
+        name: 'bot-stats',
+        description: 'View bot performance, memory usage, and metrics',
+        usage: '/bot-stats',
+        access: 'Owner'
+      },
+      {
+        name: 'bot-guilds',
+        description: 'List all connected Discord servers',
+        usage: '/bot-guilds',
+        access: 'Owner'
+      },
+      {
+        name: 'bot-blacklist',
+        description: 'Blacklist a server from using the bot',
+        usage: '/bot-blacklist <guild-id> <reason>',
+        access: 'Owner'
+      },
+      {
+        name: 'bot-unblacklist',
+        description: 'Remove a server from the blacklist',
+        usage: '/bot-unblacklist <guild-id>',
+        access: 'Owner'
       }
     ]
   },
@@ -222,12 +344,13 @@ const CATEGORIES = {
       '**1.** `/wallet` — Check coin balance',
       '**2.** `/buycoin <amount>` — Generate UPI QR & pay',
       '**3.** Auto-Credit — Coins added automatically',
-      '**4.** `/shop` & `/buyitem` — Browse and buy items!'
+      '**4.** `/mine <bet>` — Play Mines & cash out for profit!',
+      '**5.** `/shop` & `/buyitem` — Browse and buy items!'
     ]
   }
 };
 
-const ALL_CATEGORY_KEYS = ['shop', 'economy', 'admin', 'owner', 'guide'];
+const ALL_CATEGORY_KEYS = ['shop', 'economy', 'gaming', 'admin', 'owner', 'guide'];
 
 function formatUptime(uptimeMs = 0) {
   const totalSec = Math.floor(uptimeMs / 1000);
@@ -257,7 +380,7 @@ function getVisibleCategories(isUserAdmin, isUserOwner) {
   });
 }
 
-// ─── Discord Components V2 Card Builder (Matching D:\Gravity Bot) ───────────
+// ─── Discord Components V2 Card Builder (Ventrix Bot) ───────────
 function buildCard(title, sections, actionRows = [], banner = null, accentColor = 0x00e5ff) {
   const container = new ContainerBuilder()
     .setAccentColor(accentColor)

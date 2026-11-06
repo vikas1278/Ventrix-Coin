@@ -1,20 +1,30 @@
 import 'dotenv/config';
+import dns from 'node:dns';
+try {
+  dns.setDefaultResultOrder('ipv4first');
+} catch {}
 import mongoose from 'mongoose';
-import { Client, GatewayIntentBits, Events, ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder } from 'discord.js';
+import { Client, GatewayIntentBits, Events, ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, MessageFlags } from 'discord.js';
 import { handleCommand, handleComponent, handleAutocomplete, commands } from './commands.js';
 import { startGmailPolling } from './services/gmail-verifier.js';
 import { startRoleExpirationService } from './services/role-expiration.js';
 import { startDropboxScheduler } from './services/dropbox.js';
 import { getBotDbName, loadAdminsFromDb, getOwnerIds } from './utils/common.js';
-import { Guild, DropboxEvent } from './models.js';
-import { startWebServer, setServerBotContext } from './server.js';
+import { Guild, DropboxEvent, Blacklist, migrateLedgerIndexes } from './models.js';
+import { startWebServer, setServerBotContext } from './web/server.js';
+import { deploySlashCommands } from './deploy-commands.js';
 
 if (!process.env.DISCORD_TOKEN || !process.env.MONGODB_URI) {
   console.error('\x1b[31m[ERROR] Missing DISCORD_TOKEN or MONGODB_URI in .env file.\x1b[0m');
   process.exit(1);
 }
 
-const client = new Client({ intents: [GatewayIntentBits.Guilds] });
+const client = new Client({
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMessages,
+  ]
+});
 
 // Start live HTML dashboard immediately for Render / Cloud port detection
 const webServer = startWebServer(client, commands);
@@ -31,6 +41,9 @@ client.once(Events.ClientReady, async ready => {
   const botHeader = `⚡  ${botName.toUpperCase()} — NEXT-GEN ECONOMY  🪙`;
   const padding = Math.max(0, Math.floor((65 - botHeader.length) / 2));
 
+  // Run ledger index migration for two-sided transfer consensus
+  await migrateLedgerIndexes().catch(() => {});
+
   // Styled Modern Terminal Banner
   console.log('\n\x1b[36m' + '═'.repeat(65) + '\x1b[0m');
   console.log('\x1b[1m\x1b[36m' + ' '.repeat(padding) + botHeader + '\x1b[0m');
@@ -43,15 +56,21 @@ client.once(Events.ClientReady, async ready => {
   );
   console.log(`\x1b[34mℹ [COMMANDS]   \x1b[0m\x1b[1m${commands.length}\x1b[0m slash commands loaded (bot-owner, admin, public)`);
 
+  if (process.env.DISCORD_CLIENT_SECRET) {
+    console.log(`\x1b[32m✔ [OAUTH2]     \x1b[0mDiscord 1-Click Login active (DISCORD_CLIENT_SECRET loaded)`);
+  } else {
+    console.log(`\x1b[33m⚠ [OAUTH2]     \x1b[0mDiscord 1-Click Login disabled (DISCORD_CLIENT_SECRET missing in .env)`);
+  }
+
   if (gmailConfigured) {
     console.log(`\x1b[32m✔ [GMAIL]      \x1b[0mAutomatic UPI verification active (polling every ${process.env.GMAIL_POLL_SECONDS || 60}s)`);
     startGmailPolling(client);
   } else {
-    console.log('\x1b[33m⚠ [GMAIL]      \x1b[0mAutomatic email verification disabled (OAuth not configured in .env)');
+    console.log('\x1b[34mℹ [GMAIL]      \x1b[0mAutomatic email verification disabled (manual /approve-payment active)');
   }
 
   // Start background role expiration monitor
-  startRoleExpirationService(client, 60);
+  startRoleExpirationService(client, 20);
 
   // Start background Dropbox scheduler and recovery worker
   startDropboxScheduler(client, 5);
@@ -164,13 +183,23 @@ client.on(Events.GuildDelete, async guild => {
 
 client.on(Events.InteractionCreate, async interaction => {
   try {
+    if (interaction.guildId) {
+      const blocked = await Blacklist.findOne({ guildId: interaction.guildId }).lean().catch(() => null);
+      if (blocked && !interaction.commandName?.startsWith('bot-')) {
+        return interaction.reply({
+          content: `❌ This server is not permitted to use this bot.\n**Reason:** ${blocked.reason}`,
+          flags: MessageFlags.Ephemeral
+        }).catch(() => {});
+      }
+    }
+
     if (interaction.isChatInputCommand()) {
       const time = new Date().toLocaleTimeString('en-IN', { hour12: false });
       console.log(`\x1b[90m[${time}]\x1b[0m \x1b[36m/${interaction.commandName}\x1b[0m used by \x1b[33m${interaction.user.tag}\x1b[0m in \x1b[35m${interaction.guild?.name || 'DM'}\x1b[0m`);
       await handleCommand(interaction);
     } else if (interaction.isAutocomplete()) {
       await handleAutocomplete(interaction);
-    } else if (interaction.isButton() || interaction.isStringSelectMenu()) {
+    } else if (interaction.isButton() || interaction.isStringSelectMenu() || interaction.isModalSubmit()) {
       await handleComponent(interaction);
     }
   } catch (err) {
@@ -196,6 +225,7 @@ mongoose.connection.on('reconnected', () => {
 try {
   const dbName = getBotDbName();
   await mongoose.connect(process.env.MONGODB_URI, { dbName, serverSelectionTimeoutMS: 15000 });
+  await deploySlashCommands().catch(err => console.warn('[DEPLOY] Auto-deploy warning:', err.message));
   await client.login(process.env.DISCORD_TOKEN);
 } catch (error) {
   console.error('\x1b[31m[STARTUP FAILED]\x1b[0m', error);

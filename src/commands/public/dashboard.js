@@ -1,0 +1,63 @@
+import { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags } from 'discord.js';
+import config from '../../config.js';
+import { isOwner, isAdmin } from '../../utils/common.js';
+import { createMagicLoginTicket } from '../../web/auth.js';
+
+export const data = new SlashCommandBuilder()
+  .setName('dashboard')
+  .setDescription('Get direct link to the Web Dashboard & Online Control Center');
+
+export async function execute(interaction) {
+  const shopName = config.shopName || 'Vyntrix Coin Shop';
+  const role = isOwner(interaction.user.id) ? '👑 Bot Owner' : isAdmin(interaction.user.id) ? '🛡️ Admin' : '👛 Member';
+
+  // Construct URL
+  const host =
+    process.env.DASHBOARD_URL ||
+    (process.env.RENDER_EXTERNAL_HOSTNAME ? `https://${process.env.RENDER_EXTERNAL_HOSTNAME}` : 'http://localhost:10000');
+
+  // Generate a secure, 1-time 5-minute auto-login ticket for this user
+  const ticket = createMagicLoginTicket({
+    userId: interaction.user.id,
+    username: interaction.user.displayName || interaction.user.username,
+    avatar: interaction.user.avatar || '',
+  });
+  const autoLoginUrl = `${host}/auth/magic?ticket=${ticket}`;
+
+  const embed = new EmbedBuilder()
+    .setColor(0x8b5cf6)
+    .setTitle(`🌐  ${shopName} — Web Dashboard`)
+    .setDescription(
+      `Welcome <@${interaction.user.id}>! You can access the **Full Online Web Dashboard** directly in your browser:\n\n` +
+      `👛 **For Members:**\n` +
+      `• View real-time coin wallet & transaction history\n` +
+      `• Top up coins with instant UPI QR payments\n` +
+      `• Browse the shop catalog & buy items\n\n` +
+      `🛡️ **For Admins & Owners:**\n` +
+      `• 1-Click UPI payment approvals & rejections\n` +
+      `• Manage shop items (create, edit, stock, delete)\n` +
+      `• Adjust user coin balances & configure exchange rates\n` +
+      `• Manage bot admins & monitor server health\n\n` +
+      `👉 **Your Role:** **${role}**\n\n` +
+      `⚡ *Clicking the button below logs you into your account automatically!*`
+    )
+    .setFooter({ text: 'One-click instant login active • Link is private to you' })
+    .setTimestamp();
+
+  const row = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setLabel('🚀 Open Dashboard (Instant Login)')
+      .setStyle(ButtonStyle.Link)
+      .setURL(autoLoginUrl),
+    new ButtonBuilder()
+      .setLabel('🌐 Standard Link')
+      .setStyle(ButtonStyle.Link)
+      .setURL(host)
+  );
+
+  await interaction.reply({
+    embeds: [embed],
+    components: [row],
+    flags: MessageFlags.Ephemeral,
+  });
+}

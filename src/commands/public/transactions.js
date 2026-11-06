@@ -10,10 +10,8 @@ import { Order } from '../../models.js';
 import {
   money,
   formatCoins,
-  coinIcon,
   escapeText,
   C,
-  info,
   replyEmbed,
 } from '../../utils/common.js';
 

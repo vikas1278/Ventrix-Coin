@@ -5,6 +5,7 @@ import {
   ButtonBuilder,
   ButtonStyle,
   MessageFlags,
+  PermissionFlagsBits,
 } from 'discord.js';
 import { Order } from '../../models.js';
 import {
@@ -18,6 +19,8 @@ import {
 export const data = new SlashCommandBuilder()
   .setName('orderhistory')
   .setDescription('View all pending /buycoin orders from all members with pagination (Admin)')
+  .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+  .setDMPermission(false)
   .addUserOption(o =>
     o
       .setName('user')

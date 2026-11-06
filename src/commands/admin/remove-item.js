@@ -14,6 +14,8 @@ import { escapeText, C, err, replyEmbed, adminOnly } from '../../utils/common.js
 export const data = new SlashCommandBuilder()
   .setName('remove-item')
   .setDescription('Remove an item from a user\'s inventory and purge from database (admin)')
+  .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+  .setDMPermission(false)
   .addUserOption(o =>
     o
       .setName('user')
@@ -37,7 +39,7 @@ export const data = new SlashCommandBuilder()
 /**
  * Safely removes a role from a member if they have no other active grant for that role.
  */
-async function revokeItemRoleIfApplicable(guild, userId, roleId) {
+export async function revokeItemRoleIfApplicable(guild, userId, roleId) {
   if (!guild || !userId || !roleId) return false;
   try {
     const hasOtherInv = await UserInventory.findOne({
@@ -76,7 +78,7 @@ async function revokeItemRoleIfApplicable(guild, userId, roleId) {
 /**
  * Purges a single inventory item and its associated activation, claims, orders, and ledger logs.
  */
-async function purgeSingleInventoryItem(guild, item, revokeRole = true) {
+export async function purgeSingleInventoryItem(guild, item, revokeRole = true) {
   let roleRevoked = false;
 
   // Revoke role if active and requested

@@ -9,45 +9,57 @@ import {
   MessageFlags,
   ComponentType
 } from 'discord.js';
-import { UserInventory, ItemActivation, ManualClaim, Product, Order, Ledger } from '../../models.js';
-import { coinIcon, coinName, formatCoins, escapeText, C, err, ok, replyEmbed } from '../../utils/common.js';
-import { formatDuration } from '../../utils/duration.js';
-import { checkExpiredRoles } from '../../services/role-expiration.js';
+import { UserInventory, ItemActivation, ManualClaim, Product } from '../../models.js';
+import { escapeText, C, err, replyEmbed } from '../../utils/common.js';
+import { parseDuration, formatDuration } from '../../utils/duration.js';
 
 export const data = new SlashCommandBuilder()
   .setName('item')
-  .setDescription('Manage, inspect, and use your purchased shop inventory items')
-  .addSubcommand(sub =>
-    sub
-      .setName('list')
-      .setDescription('View purchased items, statuses, and expiration dates')
-      .addUserOption(o =>
-        o
-          .setName('user')
-          .setDescription('Member mention or Discord ID to inspect (optional)')
-          .setRequired(false)
-      )
-  )
+  .setDescription('Use and manage your purchased shop items')
   .addSubcommand(sub =>
     sub
       .setName('use')
       .setDescription('Select and use or claim an item from your inventory')
   );
 
-const ITEMS_PER_PAGE = 5;
+const ITEMS_PER_PAGE = 4;
+const PURPLE_THEME = 0x8B5CF6;
 
-// Status styling & badges
-const STATUS_BADGES = {
-  available:      { text: 'Available',      emoji: '🟢', desc: 'Ready to use via `/item use`' },
-  active:         { text: 'Active',         emoji: '⚡', desc: 'Role / Benefit currently active' },
-  claim_required: { text: 'Claim Required', emoji: '📋', desc: 'Requires manual staff fulfillment' },
-  consumed:       { text: 'Consumed',       emoji: '⚪', desc: 'Already used / activated' },
-  expired:        { text: 'Expired',        emoji: '❌', desc: 'Duration ended — no longer usable' },
-};
+// Minimal icon helper matching modern dark-purple aesthetic
+function getItemIcon(item) {
+  // If product name already starts with an emoji or special character
+  if (/^[\p{Emoji}\u2000-\u3300]/u.test(item.productName)) {
+    return '';
+  }
+  if (item.behaviorType?.startsWith('role') || item.roleId) {
+    return '👑 ';
+  }
+  if (item.behaviorType === 'manual_claim') return '📋 ';
+  if (item.behaviorType === 'consumable') return '✨ ';
+  return '📦 ';
+}
 
-// ─── Subcommand: /item list ───────────────────────────────────────────────────
-export async function buildInventoryEmbed(userId, guildId, pageNumber = 1, callerId = null, targetName = null) {
+function getStatusBadge(status) {
+  switch (status) {
+    case 'active':
+      return '🟢 Active';
+    case 'claim_required':
+      return '🟡 Claim Required';
+    case 'available':
+    default:
+      return '🟣 Available';
+  }
+}
+
+// ─── Subcommand: /item list & /inventory ──────────────────────────────────────
+export async function buildInventoryEmbed(userId, guildId, pageNumber = 1, callerId = null, targetName = null, userAvatarUrl = null) {
   const now = new Date();
+
+  // Support userAvatarUrl passed in 5th argument if targetName is a URL
+  let resolvedAvatarUrl = userAvatarUrl;
+  if (!resolvedAvatarUrl && typeof targetName === 'string' && /^https?:\/\//i.test(targetName)) {
+    resolvedAvatarUrl = targetName;
+  }
 
   const filter = {
     userId,
@@ -56,102 +68,131 @@ export async function buildInventoryEmbed(userId, guildId, pageNumber = 1, calle
     $or: [{ expiresAt: null }, { expiresAt: { $gt: now } }]
   };
 
-  const totalItems = await UserInventory.countDocuments(filter);
-  const totalPages = Math.max(1, Math.ceil(totalItems / ITEMS_PER_PAGE));
-  const currentPage = Math.min(Math.max(1, pageNumber), totalPages);
+  const rawItems = await UserInventory.find(filter)
+    .sort({ createdAt: -1 })
+    .lean();
 
-  const isSelf = !callerId || callerId === userId;
-  const displayName = targetName || `<@${userId}>`;
+  const totalRawCount = rawItems.reduce((acc, i) => acc + (i.quantity || 1), 0);
 
-  if (totalItems === 0) {
+  if (totalRawCount === 0) {
     const emptyEmbed = new EmbedBuilder()
-      .setColor(C.muted)
-      .setTitle(isSelf ? '🎒  Your Inventory is Empty' : `🎒  Inventory is Empty — ${displayName}`)
+      .setColor(PURPLE_THEME)
+      .setTitle('🎒 Your Inventory')
       .setDescription(
-        isSelf
-          ? 'You have not purchased any items in this server yet.\n\n' +
-            `• Browse available items: \`/shop\`\n` +
-            `• Purchase an item: \`/buyitem <item>\`\n` +
-            `• Top up ${coinName()}: \`/buycoin\``
-          : `<@${userId}> does not have any active or purchased items in this server.`
+        '0 items · Page 1/1 · 🔒 Private\n\n' +
+        'Your inventory is currently empty.\n\n' +
+        '• Browse available items: `/shop`\n' +
+        '• Purchase an item: `/buyitem <item>`\n' +
+        '• Top up coins: `/buycoin`'
       )
-      .setFooter({ text: isSelf ? 'Purchased items are kept safe in your private inventory' : 'Inspected by member' })
-      .setTimestamp();
+      .setFooter({ text: 'Use /shop to browse and purchase items' });
+
+    if (resolvedAvatarUrl) {
+      emptyEmbed.setThumbnail(resolvedAvatarUrl);
+    }
 
     return { embed: emptyEmbed, row: null, totalPages: 1, currentPage: 1 };
   }
 
-  const items = await UserInventory.find(filter)
-    .sort({ createdAt: -1 })
-    .skip((currentPage - 1) * ITEMS_PER_PAGE)
-    .limit(ITEMS_PER_PAGE)
-    .lean();
+  // Group duplicate items only when they represent the same item and compatible status/type/expiry
+  const groupedMap = new Map();
+  for (const item of rawItems) {
+    const expKey = item.expiresAt ? Math.floor(new Date(item.expiresAt).getTime() / 1000) : 'none';
+    const groupKey = [
+      item.productId ? String(item.productId) : item.productName,
+      item.status,
+      item.itemType || 'STATIC',
+      item.behaviorType || '',
+      item.roleId || '',
+      item.duration || '',
+      expKey
+    ].join('::');
+
+    if (!groupedMap.has(groupKey)) {
+      groupedMap.set(groupKey, {
+        productName: item.productName,
+        status: item.status,
+        itemType: item.itemType || 'STATIC',
+        behaviorType: item.behaviorType || 'manual_claim',
+        roleId: item.roleId || null,
+        duration: item.duration || '',
+        durationMs: item.durationMs || 0,
+        expiresAt: item.expiresAt ? new Date(item.expiresAt) : null,
+        quantity: item.quantity || 1,
+        inventoryIds: [item.inventoryId]
+      });
+    } else {
+      const existing = groupedMap.get(groupKey);
+      existing.quantity += (item.quantity || 1);
+      existing.inventoryIds.push(item.inventoryId);
+    }
+  }
+
+  const groupedItems = Array.from(groupedMap.values());
+  const totalPages = Math.max(1, Math.ceil(groupedItems.length / ITEMS_PER_PAGE));
+  const currentPage = Math.min(Math.max(1, pageNumber), totalPages);
+
+  const pageItems = groupedItems.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE);
+
+  // Build markdown description
+  const headerLine = `${totalRawCount} item${totalRawCount === 1 ? '' : 's'} · Page ${currentPage}/${totalPages} · 🔒 Private`;
+
+  const formattedBlocks = pageItems.map(item => {
+    const icon = getItemIcon(item);
+    const badge = getStatusBadge(item.status);
+    const titlePart = `**${icon}${escapeText(item.productName)}** · ${badge}`;
+
+    // Type, Duration / Time, Quantity
+    let typePart = '';
+    if (item.itemType === 'TIMED') {
+      const durStr = item.duration || (item.durationMs ? formatDuration(item.durationMs) : '');
+      typePart = durStr ? `\`Timed\` · \`${durStr}\` · \`Qty: ${item.quantity}\`` : `\`Timed\` · \`Qty: ${item.quantity}\``;
+    } else {
+      typePart = `\`Static\` · \`Qty: ${item.quantity}\``;
+    }
+
+    // Expiration (if active & timed)
+    let expiryPart = '';
+    if (item.status === 'active' && item.expiresAt) {
+      const expTs = Math.floor(new Date(item.expiresAt).getTime() / 1000);
+      expiryPart = ` · ⏳ Expires <t:${expTs}:R>`;
+    }
+
+    // Combined single line format
+    return `${titlePart} · ${typePart}${expiryPart}`;
+  });
+
+  const divider = '\n\n──────────────────\n\n';
+  const footerNote = 'Use `/item use` to activate or claim items.';
+  const description = `${headerLine}\n\n${formattedBlocks.join(divider)}${divider}${footerNote}`;
 
   const embed = new EmbedBuilder()
-    .setColor(C.brand)
-    .setTitle(isSelf ? `🎒  Your Inventory (Page ${currentPage}/${totalPages})` : `🎒  Inventory — ${displayName} (Page ${currentPage}/${totalPages})`)
-    .setDescription(
-      isSelf
-        ? `Here are your purchased items. Use **\`/item use\`** to activate roles or submit claims.\n*Private view for <@${userId}>*`
-        : `Viewing purchased and active items for <@${userId}>.`
-    )
-    .setFooter({
-      text: `Total Items: ${totalItems} • Use /item use to activate available items`,
-    })
-    .setTimestamp();
+    .setColor(PURPLE_THEME)
+    .setTitle('🎒 Your Inventory')
+    .setDescription(description);
 
-  for (const item of items) {
-    const badge = STATUS_BADGES[item.status] || STATUS_BADGES.available;
-    const purchasedTs = Math.floor(new Date(item.purchasedAt).getTime() / 1000);
-    const purchaseDate = `<t:${purchasedTs}:d>`;
-
-    let durationInfo = '';
-    if (item.itemType === 'TIMED' && item.duration) {
-      durationInfo = ` • ⏱️ Duration: \`${item.duration}\``;
-    }
-
-    let roleInfo = '';
-    if (item.roleId) {
-      roleInfo = `\n🎖️ Role: <@&${item.roleId}>`;
-    }
-
-    let expiryInfo = '';
-    if (item.expiresAt) {
-      const expTs = Math.floor(new Date(item.expiresAt).getTime() / 1000);
-      expiryInfo = `\n⏰ Expiration: <t:${expTs}:R> (<t:${expTs}:f>)`;
-    }
-
-    embed.addFields({
-      name: `${badge.emoji}  ${escapeText(item.productName)}  \`[${badge.text}]\``,
-      value:
-        `🏷️ Type: **${item.itemType}**${durationInfo} • Qty: **${item.quantity || 1}**\n` +
-        `📅 Purchased: ${purchaseDate}${roleInfo}${expiryInfo}\n` +
-        `🆔 Item ID: \`${item.productId}\` • Inv ID: \`${item.inventoryId}\``,
-      inline: false,
-    });
+  if (resolvedAvatarUrl) {
+    embed.setThumbnail(resolvedAvatarUrl);
   }
 
-  let row = null;
-  if (totalPages > 1) {
-    const activeCallerId = callerId || userId;
-    row = new ActionRowBuilder().addComponents(
-      new ButtonBuilder()
-        .setCustomId(`item_page_${userId}_${currentPage - 1}_${activeCallerId}`)
-        .setLabel('◀️ Previous')
-        .setStyle(ButtonStyle.Secondary)
-        .setDisabled(currentPage <= 1),
-      new ButtonBuilder()
-        .setCustomId(`item_page_noop_${userId}`)
-        .setLabel(`Page ${currentPage} / ${totalPages}`)
-        .setStyle(ButtonStyle.Primary)
-        .setDisabled(true),
-      new ButtonBuilder()
-        .setCustomId(`item_page_${userId}_${currentPage + 1}_${activeCallerId}`)
-        .setLabel('Next ▶️')
-        .setStyle(ButtonStyle.Secondary)
-        .setDisabled(currentPage >= totalPages)
-    );
-  }
+  const activeCallerId = callerId || userId;
+  const row = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`inv_page_${userId}_${currentPage - 1}_${activeCallerId}`)
+      .setLabel('◀ Previous')
+      .setStyle(ButtonStyle.Secondary)
+      .setDisabled(currentPage <= 1),
+    new ButtonBuilder()
+      .setCustomId(`inv_page_indicator_${userId}`)
+      .setLabel(`Page ${currentPage}/${totalPages}`)
+      .setStyle(ButtonStyle.Primary)
+      .setDisabled(true),
+    new ButtonBuilder()
+      .setCustomId(`inv_page_${userId}_${currentPage + 1}_${activeCallerId}`)
+      .setLabel('Next ▶')
+      .setStyle(ButtonStyle.Secondary)
+      .setDisabled(currentPage >= totalPages)
+  );
 
   return { embed, row, totalPages, currentPage };
 }
@@ -240,7 +281,7 @@ export async function handleItemUse(interaction) {
   collector.on('collect', async selectInteraction => {
     try {
       // Acknowledge the select menu interaction immediately so Discord doesn't timeout (3s limit)
-      await selectInteraction.deferUpdate().catch(() => {});
+      await selectInteraction.deferUpdate().catch(() => { });
       const selectedInvId = selectInteraction.values[0];
 
       // Re-validate selection on server
@@ -255,7 +296,7 @@ export async function handleItemUse(interaction) {
         return interaction.editReply({
           embeds: [err('Item Not Available', 'This item is no longer available or was already used.')],
           components: []
-        }).catch(() => {});
+        }).catch(() => { });
       }
 
       // ─── Behavior 1: Discord Role Items (Permanent or Timed) ───────────────
@@ -264,7 +305,7 @@ export async function handleItemUse(interaction) {
           return interaction.editReply({
             embeds: [err('Role Not Configured', 'This item has no Discord role ID associated with it. Contact an admin.')],
             components: []
-          }).catch(() => {});
+          }).catch(() => { });
         }
 
         const guild = interaction.guild;
@@ -274,7 +315,7 @@ export async function handleItemUse(interaction) {
           return interaction.editReply({
             embeds: [err('Role Missing', 'The configured role for this item was deleted or does not exist in this server.')],
             components: []
-          }).catch(() => {});
+          }).catch(() => { });
         }
 
         const botMember = guild.members.me;
@@ -282,14 +323,14 @@ export async function handleItemUse(interaction) {
           return interaction.editReply({
             embeds: [err('Bot Missing Permission', 'The bot lacks the `Manage Roles` permission required to grant this reward.')],
             components: []
-          }).catch(() => {});
+          }).catch(() => { });
         }
 
         if (botMember.roles.highest.position <= role.position) {
           return interaction.editReply({
             embeds: [err('Role Hierarchy Error', `The bot's highest role is lower than <@&${role.id}>. An administrator must move the bot's role above it.`)],
             components: []
-          }).catch(() => {});
+          }).catch(() => { });
         }
 
         const member = await guild.members.fetch(userId);
@@ -299,7 +340,17 @@ export async function handleItemUse(interaction) {
         let isRenewal = false;
 
         if (item.itemType === 'TIMED' || item.behaviorType === 'role_temporary') {
-          const durationMs = item.durationMs || 86400000;
+          let durationMs = item.durationMs || 0;
+          if (!durationMs && item.duration) {
+            durationMs = parseDuration(item.duration) || 0;
+          }
+          if (!durationMs && item.productId) {
+            const origProd = await Product.findById(item.productId).lean();
+            durationMs = origProd?.durationMs || (origProd?.duration ? parseDuration(origProd.duration) : 0) || 0;
+          }
+          if (!durationMs) {
+            durationMs = 86400000;
+          }
 
           // Check if user already has an active activation for this role
           const existingActivation = await ItemActivation.findOne({
@@ -345,7 +396,7 @@ export async function handleItemUse(interaction) {
                 )
               ],
               components: []
-            }).catch(() => {});
+            }).catch(() => { });
           }
         }
 
@@ -383,21 +434,21 @@ export async function handleItemUse(interaction) {
             `Successfully granted role **<@&${role.id}>** to <@${userId}>!\n\n` +
             (item.itemType === 'TIMED'
               ? `⏱️ **Duration:** \`${item.duration || formatDuration(item.durationMs)}\`\n` +
-                `⏰ **Expires:** <t:${Math.floor(expiresAt.getTime() / 1000)}:R> (<t:${Math.floor(expiresAt.getTime() / 1000)}:f>)\n` +
-                (isRenewal ? '*(Duration extended from your existing active role)*\n' : '') +
-                'The role will be automatically removed when the duration ends.'
+              `⏰ **Expires:** <t:${Math.floor(expiresAt.getTime() / 1000)}:R> (<t:${Math.floor(expiresAt.getTime() / 1000)}:f>)\n` +
+              (isRenewal ? '*(Duration extended from your existing active role)*\n' : '') +
+              'The role will be automatically removed when the duration ends.'
               : '🌟 **Duration:** Permanent (Never expires)')
           )
           .addFields(
             { name: '👤 Recipient', value: `<@${userId}>`, inline: true },
-            { name: '🎖️ Role',      value: `<@&${role.id}>`, inline: true },
-            { name: '🎒 Status',    value: '`Applied & Consumed`', inline: true },
+            { name: '🎖️ Role', value: `<@&${role.id}>`, inline: true },
+            { name: '🎒 Status', value: '`Applied & Consumed`', inline: true },
           )
           .setFooter({ text: 'Check active items anytime with /item list' })
           .setTimestamp();
 
         collector.stop('used');
-        return interaction.editReply({ embeds: [roleEmbed], components: [] }).catch(() => {});
+        return interaction.editReply({ embeds: [roleEmbed], components: [] }).catch(() => { });
       }
 
       // ─── Behavior 2: Static / Manual Claim Items ───────────────────────────
@@ -417,7 +468,7 @@ export async function handleItemUse(interaction) {
               )
             ],
             components: []
-          }).catch(() => {});
+          }).catch(() => { });
         }
 
         const claimId = `CLM-${Date.now().toString(36).toUpperCase()}-${Math.floor(Math.random() * 1000).toString(36).toUpperCase()}`;
@@ -446,15 +497,15 @@ export async function handleItemUse(interaction) {
             `**Your item will remain safely in your inventory until the claim is processed.**`
           )
           .addFields(
-            { name: '🆔 Claim ID',       value: `\`${claimId}\``, inline: true },
-            { name: '🎒 Inventory ID',   value: `\`${item.inventoryId}\``, inline: true },
-            { name: '📊 Claim Status',   value: '`Pending Staff Review`', inline: true },
+            { name: '🆔 Claim ID', value: `\`${claimId}\``, inline: true },
+            { name: '🎒 Inventory ID', value: `\`${item.inventoryId}\``, inline: true },
+            { name: '📊 Claim Status', value: '`Pending Staff Review`', inline: true },
           )
           .setFooter({ text: 'Provide this Claim ID to staff when claiming your reward' })
           .setTimestamp();
 
         collector.stop('used');
-        return interaction.editReply({ embeds: [claimEmbed], components: [] }).catch(() => {});
+        return interaction.editReply({ embeds: [claimEmbed], components: [] }).catch(() => { });
       }
 
       // ─── Behavior 3: Consumable Reward ─────────────────────────────────────
@@ -468,19 +519,19 @@ export async function handleItemUse(interaction) {
         .setDescription(`You successfully used **${escapeText(item.productName)}**!`)
         .addFields(
           { name: '🎒 Inventory ID', value: `\`${item.inventoryId}\``, inline: true },
-          { name: '📊 Status',       value: '`Consumed`', inline: true },
+          { name: '📊 Status', value: '`Consumed`', inline: true },
         )
         .setTimestamp();
 
       collector.stop('used');
-      return interaction.editReply({ embeds: [consumableEmbed], components: [] }).catch(() => {});
+      return interaction.editReply({ embeds: [consumableEmbed], components: [] }).catch(() => { });
 
     } catch (collectErr) {
       console.error('[ITEM:USE:COLLECT]', collectErr);
       return interaction.editReply({
         embeds: [err('Usage Error', collectErr.message || 'Failed to use item.')],
         components: []
-      }).catch(() => {});
+      }).catch(() => { });
     }
   });
 
@@ -496,39 +547,23 @@ export async function handleItemUse(interaction) {
               .addOptions({ label: 'Expired', value: 'expired' })
           )
         ]
-      }).catch(() => {});
+      }).catch(() => { });
     }
   });
 }
 
 // ─── Main Slash Command Executor ──────────────────────────────────────────────
 export async function execute(interaction) {
-  const subcommand = interaction.options.getSubcommand();
+  const subcommand = interaction.options.getSubcommand(false);
 
-  if (subcommand === 'list') {
-    // Proactively clean up any expired roles via Discord client
-    checkExpiredRoles(interaction.client).catch(() => {});
-
-    const targetUser = interaction.options.getUser('user') || interaction.user;
-    const { embed, row } = await buildInventoryEmbed(
-      targetUser.id,
-      interaction.guildId || 'DM',
-      1,
-      interaction.user.id,
-      targetUser.displayName || targetUser.username
-    );
-    const components = row ? [row] : [];
-    return interaction.reply({ embeds: [embed], components });
-  }
-
-  if (subcommand === 'use') {
+  if (subcommand === 'use' || !subcommand) {
     return handleItemUse(interaction);
   }
 }
 
-// ─── Component Handler (Pagination Buttons for /item list) ────────────────────
+// ─── Component Handler (Pagination Buttons for /item list & /inventory) ───────
 export async function component(interaction) {
-  if (!interaction.customId.startsWith('item_page_')) return;
+  if (!interaction.customId.startsWith('inv_page_') && !interaction.customId.startsWith('item_page_')) return;
 
   const parts = interaction.customId.split('_');
   const targetUserId = parts[2];
@@ -537,20 +572,23 @@ export async function component(interaction) {
 
   if (interaction.user.id !== callerId) {
     return interaction.reply({
-      content: '❌ Only the user who ran this command can interact with the inventory pagination.',
+      content: '❌ Only the user who opened this inventory can use the page buttons.',
       flags: MessageFlags.Ephemeral
     });
   }
 
   if (isNaN(targetPage)) return;
 
+  const avatarUrl = interaction.user?.displayAvatarURL ? interaction.user.displayAvatarURL({ extension: 'png', size: 256 }) : null;
   const { embed, row } = await buildInventoryEmbed(
     targetUserId,
     interaction.guildId || 'DM',
     targetPage,
-    callerId
+    callerId,
+    null,
+    avatarUrl
   );
   const components = row ? [row] : [];
 
-  return interaction.update({ embeds: [embed], components });
+  return interaction.update({ embeds: [embed], components }).catch(() => { });
 }
