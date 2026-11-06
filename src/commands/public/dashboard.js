@@ -1,28 +1,19 @@
 import { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags } from 'discord.js';
 import config from '../../config.js';
 import { isOwner, isAdmin } from '../../utils/common.js';
-import { createMagicLoginTicket } from '../../web/auth.js';
 
 export const data = new SlashCommandBuilder()
   .setName('dashboard')
   .setDescription('Get direct link to the Web Dashboard & Online Control Center');
 
 export async function execute(interaction) {
-  const shopName = config.shopName || 'Vyntrix Coin Shop';
+  const shopName = config.shopName || 'Ventrix Coin Shop';
   const role = isOwner(interaction.user.id) ? '👑 Bot Owner' : isAdmin(interaction.user.id) ? '🛡️ Admin' : '👛 Member';
 
   // Construct URL
   const host =
     process.env.DASHBOARD_URL ||
     (process.env.RENDER_EXTERNAL_HOSTNAME ? `https://${process.env.RENDER_EXTERNAL_HOSTNAME}` : 'http://localhost:10000');
-
-  // Generate a secure, 1-time 5-minute auto-login ticket for this user
-  const ticket = createMagicLoginTicket({
-    userId: interaction.user.id,
-    username: interaction.user.displayName || interaction.user.username,
-    avatar: interaction.user.avatar || '',
-  });
-  const autoLoginUrl = `${host}/auth/magic?ticket=${ticket}`;
 
   const embed = new EmbedBuilder()
     .setColor(0x8b5cf6)
@@ -39,18 +30,14 @@ export async function execute(interaction) {
       `• Adjust user coin balances & configure exchange rates\n` +
       `• Manage bot admins & monitor server health\n\n` +
       `👉 **Your Role:** **${role}**\n\n` +
-      `⚡ *Clicking the button below logs you into your account automatically!*`
+      `🌐 *Click the button below to open the Web Dashboard in your browser.*`
     )
-    .setFooter({ text: 'One-click instant login active • Link is private to you' })
+    .setFooter({ text: 'Ventrix Web Control Center' })
     .setTimestamp();
 
   const row = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
-      .setLabel('🚀 Open Dashboard (Instant Login)')
-      .setStyle(ButtonStyle.Link)
-      .setURL(autoLoginUrl),
-    new ButtonBuilder()
-      .setLabel('🌐 Standard Link')
+      .setLabel('🌐 Open Web Dashboard')
       .setStyle(ButtonStyle.Link)
       .setURL(host)
   );
