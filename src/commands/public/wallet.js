@@ -30,6 +30,8 @@ const typeDetails = {
   admin_deduct:    { emoji: '🔻', label: 'Admin Deduction' },
   purchase_credit: { emoji: '🪙', label: 'Coin Top-up' },
   shop_purchase:   { emoji: '🛍️', label: 'Shop Purchase' },
+  DROPBOX_REWARD:  { emoji: '📦', label: 'Dropbox Reward' },
+  transfer:        { emoji: '💸', label: 'Transfer' },
 };
 
 /**
@@ -105,7 +107,7 @@ export async function buildLedgerEmbed(userId, guildId, pageNumber = 1, callerId
 
     embed.addFields({
       name: `${detail.emoji}  **${sign}${formatCoins(entry.coins)}**  \`[${detail.label}]\``,
-      value: `⏱️ <t:${ts}:R> (<t:${ts}:d>) • 📝 *${reason}*${adminTag}\n🔖 \`${entry.rrn || entry.orderId}\``,
+      value: `⏱️ <t:${ts}:R> (<t:${ts}:d>) • 📝 *${reason}*${adminTag}\n🔖 \`${entry.transactionId || entry.orderId || entry.rrn}\``,
       inline: false
     });
   }
