@@ -5,7 +5,14 @@ export function renderLoginPage({ hasSecret, shopName, coinName }) {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>VENTRIX COIN — Login</title>
+  <title>VENTRIX COIN — Official Web Dashboard</title>
+  <meta name="description" content="Official web control dashboard for Ventrix Discord Bot. Manage your coin wallet, browse shop items, and view transaction history securely via Discord OAuth2.">
+  <meta name="author" content="Ventrix Bot">
+  <meta name="robots" content="index, follow">
+  <meta property="og:title" content="VENTRIX COIN — Official Web Dashboard">
+  <meta property="og:description" content="Official companion web dashboard for Ventrix Discord Bot. Authenticate safely using official Discord OAuth2.">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Ventrix Coin">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@600;700;800;900&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap" rel="stylesheet">
@@ -261,6 +268,37 @@ export function renderLoginPage({ hasSecret, shopName, coinName }) {
       }
     }
 
+    .oauth-disclaimer {
+      margin-top: 20px;
+      padding-top: 16px;
+      border-top: 1px solid rgba(226, 232, 240, 0.7);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+      text-align: center;
+    }
+    .oauth-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+      font-weight: 700;
+      color: #059669;
+      background: rgba(16, 185, 129, 0.08);
+      border: 1px solid rgba(16, 185, 129, 0.2);
+      padding: 3px 10px;
+      border-radius: 20px;
+      letter-spacing: 0.02em;
+    }
+    .oauth-subtext {
+      font-size: 11px;
+      line-height: 1.45;
+      color: #64748b;
+      font-weight: 500;
+      max-width: 290px;
+    }
+
     @media (prefers-reduced-motion: reduce) {
       *, *::before, *::after {
         animation: none !important;
@@ -305,6 +343,20 @@ export function renderLoginPage({ hasSecret, shopName, coinName }) {
           <div class="btn-spinner"></div>
         </div>
       </a>
+
+      <!-- 4. Security & Official Discord OAuth2 Verification Notice -->
+      <div class="oauth-disclaimer">
+        <div class="oauth-badge">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+            <polyline points="9 12 11 14 15 10"/>
+          </svg>
+          <span>Official Discord OAuth2 API</span>
+        </div>
+        <p class="oauth-subtext">
+          Securely authorized via Discord. We never request or store your Discord password.
+        </p>
+      </div>
 
     </div>
   </main>
