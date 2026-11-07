@@ -18,11 +18,33 @@ export const data = new SlashCommandBuilder()
 const ITEMS_PER_PAGE = 8;
 const TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes timeout
 
-// ─── Discord Components V2 Card Builder (No Images) ──────────────────────────
-function buildV2Card(title, sections, actionRows = [], accentColor = 0x00e5ff) {
+// ─── URL Validator Helper ─────────────────────────────────────────────────────
+function isValidHttpUrl(string) {
+  if (!string || typeof string !== 'string') return false;
+  try {
+    const url = new URL(string.trim());
+    return url.protocol === 'http:' || url.protocol === 'https:';
+  } catch (_) {
+    return false;
+  }
+}
+
+// ─── Discord Components V2 Card Builder ───────────────────────────────────────
+function buildV2Card(title, sections, actionRows = [], accentColor = 0x00e5ff, thumbnailUrl = null) {
   const container = new ContainerBuilder()
-    .setAccentColor(accentColor)
-    .addTextDisplayComponents(textDisplay => textDisplay.setContent(`## ${title}`));
+    .setAccentColor(accentColor);
+
+  const hasThumbnail = isValidHttpUrl(thumbnailUrl);
+
+  if (hasThumbnail) {
+    container.addSectionComponents(section =>
+      section
+        .addTextDisplayComponents(textDisplay => textDisplay.setContent(`## ${title}`))
+        .setThumbnailAccessory(thumb => thumb.setURL(thumbnailUrl.trim()))
+    );
+  } else {
+    container.addTextDisplayComponents(textDisplay => textDisplay.setContent(`## ${title}`));
+  }
 
   for (const section of sections) {
     container
@@ -265,11 +287,14 @@ export async function buildItemDetailsCard(itemId, guildId = null, isDisabled = 
   );
   actionRows.push(buttonRow);
 
+  const thumbnailUrl = isValidHttpUrl(item.imageUrl) ? item.imageUrl.trim() : null;
+
   const card = buildV2Card(
     `🏷️ ${item.name} — Full Details`,
     sections,
     actionRows,
-    0x00e5ff
+    0x00e5ff,
+    thumbnailUrl
   );
 
   return { card };
